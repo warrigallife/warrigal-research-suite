@@ -1,0 +1,46 @@
+# ============================================================
+# WARRIGAL RESEARCH SUITE
+# Git exclusion rules
+# ============================================================
+
+# Python temporary/cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual environments
+.venv/
+venv/
+
+# macOS junk
+.DS_Store
+
+# VS Code local settings
+.vscode/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Warrigal acquisition workspace
+workspace/
+
+# Warrigal heavyweight archive objects
+archive/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Crawlee local runtime/storage
+storage/
+
+# Warrigal generated exports
+exports/

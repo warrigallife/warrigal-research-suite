@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "warrigal-research-suite"
+version = "0.1.0"
+description = "Local-first research acquisition, preservation, corpus, language, and JUFE integration suite."
+requires-python = ">=3.14"
+dependencies = [
+    "crawlee[beautifulsoup]",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
