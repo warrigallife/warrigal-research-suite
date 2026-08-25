@@ -44,3 +44,5 @@ storage/
 
 # Warrigal generated exports
 exports/
+
+*.egg-info/
