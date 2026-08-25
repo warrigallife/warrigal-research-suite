@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 
 from warrigal.models import (
+    Acquisition,
     Batch,
     Collection,
     Job,
     Node,
+    Object,
     Source,
+    StorageLocation,
 )
 
 
@@ -133,3 +137,168 @@ class WarrigalRepository:
             ),
         )
         self.connection.commit()
+
+    def save_object(self, obj: Object) -> None:
+        """Save an immutable object record."""
+
+        self.connection.execute(
+            """
+            INSERT INTO objects (
+                object_id,
+                sha256,
+                size_bytes,
+                mime_type,
+                original_filename,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                obj.object_id,
+                obj.sha256,
+                obj.size_bytes,
+                obj.mime_type,
+                obj.original_filename,
+                obj.created_at.isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def get_object_by_hash(self, sha256: str) -> sqlite3.Row | None:
+        """Find an existing object using its SHA-256 identity."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM objects
+            WHERE sha256 = ?
+            """,
+            (sha256,),
+        ).fetchone()
+
+    def save_acquisition(self, acquisition: Acquisition) -> None:
+        """Record an acquisition event."""
+
+        self.connection.execute(
+            """
+            INSERT INTO acquisitions (
+                acquisition_id,
+                source_id,
+                object_id,
+                job_id,
+                node_id,
+                batch_id,
+                method,
+                status,
+                http_status,
+                error,
+                acquired_at,
+                metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                acquisition.acquisition_id,
+                acquisition.source_id,
+                acquisition.object_id,
+                acquisition.job_id,
+                acquisition.node_id,
+                acquisition.batch_id,
+                acquisition.method,
+                acquisition.status,
+                acquisition.http_status,
+                acquisition.error,
+                acquisition.acquired_at.isoformat(),
+                json.dumps(acquisition.metadata),
+            ),
+        )
+        self.connection.commit()
+
+    def save_storage_location(self, storage: StorageLocation) -> None:
+        """Record where an object's bytes are stored."""
+
+        self.connection.execute(
+            """
+            INSERT INTO storage_locations (
+                storage_id,
+                object_id,
+                location_type,
+                path,
+                node_id,
+                verified_at,
+                metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                storage.storage_id,
+                storage.object_id,
+                storage.location_type,
+                storage.path,
+                storage.node_id,
+                (
+                    storage.verified_at.isoformat()
+                    if storage.verified_at
+                    else None
+                ),
+                json.dumps(storage.metadata),
+            ),
+        )
+        self.connection.commit()
+
+    def add_object_to_collection(
+        self,
+        collection_id: str,
+        object_id: str,
+    ) -> None:
+        """Associate an object with a research collection."""
+
+        added_at = datetime.now(timezone.utc).isoformat()
+
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO collection_objects (
+                collection_id,
+                object_id,
+                added_at
+            )
+            VALUES (?, ?, ?)
+            """,
+            (
+                collection_id,
+                object_id,
+                added_at,
+            ),
+        )
+        self.connection.commit()
+
+    def get_acquisitions_for_object(
+        self,
+        object_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return provenance records for an object."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM acquisitions
+            WHERE object_id = ?
+            ORDER BY acquired_at
+            """,
+            (object_id,),
+        ).fetchall()
+
+    def get_storage_locations(
+        self,
+        object_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return known storage locations for an object."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM storage_locations
+            WHERE object_id = ?
+            """,
+            (object_id,),
+        ).fetchall()
