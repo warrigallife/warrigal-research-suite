@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Public HTTP/HTTPS URL to acquire.",
     )
 
+    subparsers.add_parser(
+        "history",
+        help="Show acquisition history.",
+    )
+
     return parser
 
 def run_acquire(url: str) -> int:
@@ -104,6 +109,29 @@ def run_acquire(url: str) -> int:
     db.close()
     return 0
 
+def run_history() -> int:
+    """Show Warrigal's acquisition history."""
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+
+    rows = repository.list_acquisitions()
+
+    print()
+    print("=== WARRIGAL ACQUISITION HISTORY ===")
+    print(f"TOTAL ACQUISITIONS: {len(rows)}")
+    print()
+
+    for row in rows:
+        print(f"ACQUISITION: {row['acquisition_id']}")
+        print(f"OBJECT:      {row['object_id']}")
+        print(f"SOURCE:      {row['source_id']}")
+        print(f"ACQUIRED:    {row['acquired_at']}")
+        print()
+
+    db.close()
+    return 0
+
 def main() -> int:
     """Run the Warrigal command-line interface."""
 
@@ -113,6 +141,9 @@ def main() -> int:
     if args.command == "acquire":
         return run_acquire(args.url)
 
+    if args.command == "history":
+        return run_history()
+    
     parser.print_help()
     return 0
 
