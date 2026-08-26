@@ -118,6 +118,19 @@ class WarrigalRepository:
         )
         self.connection.commit()
 
+        
+    def get_source(self, source_id: str) -> sqlite3.Row | None:
+        """Return a source by its Warrigal source ID."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM sources
+            WHERE source_id = ?
+            """,
+            (source_id,),
+        ).fetchone()    
+
     def save_collection(self, collection: Collection) -> None:
         self.connection.execute(
             """
