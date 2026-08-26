@@ -177,6 +177,18 @@ class WarrigalRepository:
         )
         self.connection.commit()
 
+    def get_object(self, object_id: str) -> sqlite3.Row | None:
+        """Return an object by its Warrigal object ID."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM objects
+            WHERE object_id = ?
+            """,
+            (object_id,),
+        ).fetchone()    
+
     def get_object_by_hash(self, sha256: str) -> sqlite3.Row | None:
         """Find an existing object using its SHA-256 identity."""
 
