@@ -34,6 +34,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show acquisition history.",
     )
 
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Inspect a preserved Warrigal object.",
+    )
+
+    inspect_parser.add_argument(
+        "object_id",
+        help="Warrigal object ID to inspect.",
+    )
     return parser
 
 def run_acquire(url: str) -> int:
@@ -138,6 +147,37 @@ def run_history() -> int:
     db.close()
     return 0
 
+def run_inspect(object_id: str) -> int:
+    """Inspect a preserved Warrigal object."""
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+
+    obj = repository.get_object(object_id)
+
+    if obj is None:
+        print(f"WARRIGAL: object not found: {object_id}")
+        db.close()
+        return 1
+
+    acquisitions = repository.get_acquisitions_for_object(object_id)
+    storage_locations = repository.get_storage_locations(object_id)
+
+    print()
+    print("=== WARRIGAL OBJECT INSPECTION ===")
+    print(f"OBJECT:         {obj['object_id']}")
+    print(f"SHA-256:        {obj['sha256']}")
+    print(f"SIZE:           {obj['size_bytes']}")
+    print(f"MIME TYPE:      {obj['mime_type']}")
+    print(f"FILENAME:       {obj['original_filename']}")
+    print(f"CREATED:        {obj['created_at']}")
+    print()
+    print(f"ACQUISITIONS:   {len(acquisitions)}")
+    print(f"STORAGE COPIES: {len(storage_locations)}")
+
+    db.close()
+    return 0
+     
 def main() -> int:
     """Run the Warrigal command-line interface."""
 
@@ -149,7 +189,10 @@ def main() -> int:
 
     if args.command == "history":
         return run_history()
-    
+
+    if args.command == "inspect":
+        return run_inspect(args.object_id)
+
     parser.print_help()
     return 0
 
