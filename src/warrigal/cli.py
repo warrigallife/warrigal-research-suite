@@ -123,9 +123,15 @@ def run_history() -> int:
     print()
 
     for row in rows:
+        source = repository.get_source(row["source_id"])
+      
         print(f"ACQUISITION: {row['acquisition_id']}")
         print(f"OBJECT:      {row['object_id']}")
         print(f"SOURCE:      {row['source_id']}")
+
+        if source is not None:
+            print(f"URL:         {source['final_locator'] or source['locator']}")
+
         print(f"ACQUIRED:    {row['acquired_at']}")
         print()
 
