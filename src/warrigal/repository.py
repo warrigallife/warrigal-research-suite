@@ -272,6 +272,17 @@ class WarrigalRepository:
         )
         self.connection.commit()
 
+    def list_acquisitions(self) -> list[sqlite3.Row]:
+        """Return all acquisitions, newest first."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM acquisitions
+            ORDER BY acquired_at DESC
+            """
+        ).fetchall()
+    
     def get_acquisitions_for_object(
         self,
         object_id: str,
