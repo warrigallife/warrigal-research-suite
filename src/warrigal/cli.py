@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 
+from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
@@ -43,6 +44,17 @@ def build_parser() -> argparse.ArgumentParser:
         "object_id",
         help="Warrigal object ID to inspect.",
     )
+
+    discover_parser = subparsers.add_parser(
+        "discover",
+        help="Discover links from a public web page.",
+    )
+
+    discover_parser.add_argument(
+        "url",
+        help="Public HTTP/HTTPS URL to discover links from.",
+    )
+
     return parser
 
 def run_acquire(url: str) -> int:
@@ -201,6 +213,28 @@ def run_inspect(object_id: str) -> int:
 
     db.close()
     return 0
+
+def run_discover(url: str) -> int:
+    """Discover links from a public web page."""
+
+    fetcher = WebFetcher()
+    response = fetcher.fetch(url)
+
+    links = extract_links(
+        response.data,
+        response.final_url,
+    )
+
+    print()
+    print("=== WARRIGAL LINK DISCOVERY ===")
+    print(f"URL:   {response.final_url}")
+    print(f"LINKS: {len(links)}")
+    print()
+
+    for link in links:
+        print(link)
+
+    return 0
      
 def main() -> int:
     """Run the Warrigal command-line interface."""
@@ -216,6 +250,9 @@ def main() -> int:
 
     if args.command == "inspect":
         return run_inspect(args.object_id)
+
+    if args.command == "discover":
+        return run_discover(args.url)
 
     parser.print_help()
     return 0
