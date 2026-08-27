@@ -152,6 +152,7 @@ def run_inspect(object_id: str) -> int:
 
     db = initialize_database()
     repository = WarrigalRepository(db)
+    
 
     obj = repository.get_object(object_id)
 
@@ -173,7 +174,30 @@ def run_inspect(object_id: str) -> int:
     print(f"CREATED:        {obj['created_at']}")
     print()
     print(f"ACQUISITIONS:   {len(acquisitions)}")
+
+    for acquisition in acquisitions:
+        source = repository.get_source(acquisition["source_id"])
+
+        print()
+        print(f"  ACQUISITION: {acquisition['acquisition_id']}")
+        print(f"  SOURCE:      {acquisition['source_id']}")
+
+        if source is not None:
+            print(f"  URL:         {source['final_locator'] or source['locator']}")
+
+        print(f"  METHOD:      {acquisition['method']}")
+        print(f"  STATUS:      {acquisition['status']}")
+        print(f"  ACQUIRED:    {acquisition['acquired_at']}")
+
+    print()
     print(f"STORAGE COPIES: {len(storage_locations)}")
+
+    for storage in storage_locations:
+        print()
+        print(f"  STORAGE:     {storage['storage_id']}")
+        print(f"  TYPE:        {storage['location_type']}")
+        print(f"  PATH:        {storage['path']}")
+        print(f"  VERIFIED:    {storage['verified_at']}")
 
     db.close()
     return 0
