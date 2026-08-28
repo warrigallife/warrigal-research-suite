@@ -249,6 +249,32 @@ def run_discover(url: str) -> int:
 def run_crawl(url: str) -> int:
     """Crawl public web pages within controlled boundaries."""
 
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    object_store = ObjectStore()
+    node = Node(name="Warrigal Crawler")
+    repository.save_node(node)
+    batch = Batch(
+        node_id=node.node_id,
+        label="Web crawl",
+    )
+    repository.save_batch(batch)
+    job = Job(
+        name="Public web crawl",
+        node_id=node.node_id,
+        batch_id=batch.batch_id,
+    )
+    repository.save_job(job)
+
+    collection = Collection(
+        name="Web Crawl Acquisitions",
+        description="Resources preserved during a Warrigal web crawl.",
+    )
+    repository.save_collection(collection)
+    service = AcquisitionService(
+        repository=repository,
+        object_store=object_store,
+    )
     fetcher = WebFetcher()
 
     crawler = WebCrawler(
@@ -258,6 +284,33 @@ def run_crawl(url: str) -> int:
     )
 
     result = crawler.crawl(url)
+
+    for response in result.responses:
+        source = Source(
+            source_type="web",
+            locator=response.requested_url,
+            final_locator=response.final_url,
+            metadata={
+                "http_status": response.status,
+                "content_type": response.content_type,
+            },
+        )
+        repository.save_source(source)
+        service.acquire_bytes(
+            data=response.data,
+            source_id=source.source_id,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            method="web_crawl",
+            mime_type=response.content_type,
+            collection_id=collection.collection_id,
+            http_status=response.status,
+            metadata={
+                "requested_url": response.requested_url,
+                "final_url": response.final_url,
+            },
+        )
 
     print()
     print("=== WARRIGAL WEB CRAWL ===")
@@ -274,7 +327,8 @@ def run_crawl(url: str) -> int:
     print("DISCOVERED URLS:")
     for discovered_url in result.discovered:
         print(f"  {discovered_url}")
-
+        
+    db.close()
     return 0
      
 def main() -> int:
