@@ -11,12 +11,16 @@ class Passage:
     text: str
     source_url: str | None = None
     source_title: str | None = None
+    object_id: str | None = None
+    acquisition_id: str | None = None
 
 def split_into_passages(
     text: str,
     max_words: int = 120,
     source_url: str | None = None,
     source_title: str | None = None,
+    object_id: str | None = None,
+    acquisition_id: str | None = None,
 ) -> list[Passage]:
     """Split readable text into searchable passages."""
 
@@ -34,6 +38,8 @@ def split_into_passages(
                 text=passage_text,
                 source_url=source_url,
                 source_title=source_title,
+                object_id=object_id,
+                acquisition_id=acquisition_id,
             )
         )
 
