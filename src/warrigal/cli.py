@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from warrigal.acquisition.crawler import WebCrawler
+from warrigal.acquisition.content import extract_html_content
 from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.acquisition.web import WebFetcher
@@ -9,6 +10,7 @@ from warrigal.database import initialize_database
 from warrigal.models import Batch, Collection, Job, Node, Source
 from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
+from warrigal.retrieval.passages import split_into_passages
 
 def build_parser() -> argparse.ArgumentParser:
     """Build Warrigal's command-line interface."""
@@ -296,7 +298,7 @@ def run_crawl(url: str) -> int:
             },
         )
         repository.save_source(source)
-        service.acquire_bytes(
+        acquisition_result = service.acquire_bytes(
             data=response.data,
             source_id=source.source_id,
             job_id=job.job_id,
@@ -311,6 +313,26 @@ def run_crawl(url: str) -> int:
                 "final_url": response.final_url,
             },
         )
+        if response.content_type == "text/html":
+            content = extract_html_content(response.data)
+
+            passages = split_into_passages(
+                content.text,
+                source_url=response.final_url,
+                source_title=content.title,
+                object_id=acquisition_result.object_id,
+                acquisition_id=acquisition_result.acquisition_id,
+            )
+            if passages:
+                passage = passages[0]
+
+                print()
+                print("=== WARRIGAL REAL PROVENANCE BRIDGE ===")
+                print("TITLE:", passage.source_title)
+                print("SOURCE:", passage.source_url)
+                print("OBJECT:", passage.object_id)
+                print("ACQUISITION:", passage.acquisition_id)
+                print("EVIDENCE:", passage.text[:300])
 
     print()
     print("=== WARRIGAL WEB CRAWL ===")
@@ -327,7 +349,7 @@ def run_crawl(url: str) -> int:
     print("DISCOVERED URLS:")
     for discovered_url in result.discovered:
         print(f"  {discovered_url}")
-        
+
     db.close()
     return 0
      
