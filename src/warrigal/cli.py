@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-
+from warrigal.acquisition.crawler import WebCrawler
 from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.acquisition.web import WebFetcher
@@ -53,6 +53,16 @@ def build_parser() -> argparse.ArgumentParser:
     discover_parser.add_argument(
         "url",
         help="Public HTTP/HTTPS URL to discover links from.",
+    )
+
+    crawl_parser = subparsers.add_parser(
+        "crawl",
+        help="Crawl public web pages within controlled boundaries.",
+    )
+
+    crawl_parser.add_argument(
+        "url",
+        help="Public HTTP/HTTPS URL to start crawling from.",
     )
 
     return parser
@@ -235,6 +245,37 @@ def run_discover(url: str) -> int:
         print(link)
 
     return 0
+
+def run_crawl(url: str) -> int:
+    """Crawl public web pages within controlled boundaries."""
+
+    fetcher = WebFetcher()
+
+    crawler = WebCrawler(
+        fetcher=fetcher,
+        max_pages=10,
+        same_domain=True,
+    )
+
+    result = crawler.crawl(url)
+
+    print()
+    print("=== WARRIGAL WEB CRAWL ===")
+    print(f"START:      {result.start_url}")
+    print(f"VISITED:    {len(result.visited)}")
+    print(f"DISCOVERED: {len(result.discovered)}")
+    print()
+
+    print("VISITED URLS:")
+    for visited_url in result.visited:
+        print(f"  {visited_url}")
+
+    print()
+    print("DISCOVERED URLS:")
+    for discovered_url in result.discovered:
+        print(f"  {discovered_url}")
+
+    return 0
      
 def main() -> int:
     """Run the Warrigal command-line interface."""
@@ -253,6 +294,9 @@ def main() -> int:
 
     if args.command == "discover":
         return run_discover(args.url)
+
+    if args.command == "crawl":
+        return run_crawl(args.url)
 
     parser.print_help()
     return 0
