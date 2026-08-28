@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from warrigal.acquisition.links import extract_links
-from warrigal.acquisition.web import WebFetcher
+from warrigal.acquisition.web import WebFetcher, WebResponse
 
 
 @dataclass
@@ -14,6 +14,7 @@ class CrawlResult:
     start_url: str
     visited: list[str]
     discovered: list[str]
+    responses: list[WebResponse]
 
 
 class WebCrawler:
@@ -32,6 +33,7 @@ class WebCrawler:
     def crawl(self, start_url: str) -> CrawlResult:
         visited: list[str] = []
         discovered: list[str] = []
+        responses: list[WebResponse] = []
         pending = [start_url]
 
         start_domain = urlparse(start_url).netloc
@@ -43,6 +45,7 @@ class WebCrawler:
                 continue
 
             response = self.fetcher.fetch(url)
+            responses.append(response)
             visited.append(response.final_url)
 
             if response.content_type != "text/html":
@@ -68,4 +71,5 @@ class WebCrawler:
             start_url=start_url,
             visited=visited,
             discovered=discovered,
+            responses=responses,
         )
