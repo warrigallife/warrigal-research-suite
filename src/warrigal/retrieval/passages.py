@@ -10,11 +10,13 @@ class Passage:
     index: int
     text: str
     source_url: str | None = None
+    source_title: str | None = None
 
 def split_into_passages(
     text: str,
     max_words: int = 120,
     source_url: str | None = None,
+    source_title: str | None = None,
 ) -> list[Passage]:
     """Split readable text into searchable passages."""
 
@@ -31,6 +33,7 @@ def split_into_passages(
                 index=len(passages),
                 text=passage_text,
                 source_url=source_url,
+                source_title=source_title,
             )
         )
 
