@@ -110,3 +110,17 @@ class StorageLocation:
     storage_id: str = field(default_factory=lambda: new_id("STORE"))
     verified_at: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Passage:
+    """A persistent searchable passage derived from a Warrigal acquisition."""
+
+    object_id: str
+    acquisition_id: str
+    passage_index: int
+    text: str
+    source_url: str | None = None
+    source_title: str | None = None
+    passage_id: str = field(default_factory=lambda: new_id("PASSAGE"))
+    created_at: datetime = field(default_factory=utc_now)

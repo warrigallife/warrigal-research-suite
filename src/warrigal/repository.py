@@ -11,6 +11,7 @@ from warrigal.models import (
     Job,
     Node,
     Object,
+    Passage,
     Source,
     StorageLocation,
 )
@@ -235,6 +236,36 @@ class WarrigalRepository:
                 acquisition.error,
                 acquisition.acquired_at.isoformat(),
                 json.dumps(acquisition.metadata),
+            ),
+        )
+        self.connection.commit()
+
+    def save_passage(self, passage: Passage) -> None:
+        """Record a persistent searchable passage."""
+
+        self.connection.execute(
+            """
+            INSERT INTO passages (
+                passage_id,
+                object_id,
+                acquisition_id,
+                passage_index,
+                text,
+                source_url,
+                source_title,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                passage.passage_id,
+                passage.object_id,
+                passage.acquisition_id,
+                passage.passage_index,
+                passage.text,
+                passage.source_url,
+                passage.source_title,
+                passage.created_at.isoformat(),
             ),
         )
         self.connection.commit()

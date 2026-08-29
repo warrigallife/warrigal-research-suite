@@ -73,6 +73,26 @@ CREATE TABLE IF NOT EXISTS acquisitions (
     FOREIGN KEY (batch_id) REFERENCES batches(batch_id)
 );
 
+CREATE TABLE IF NOT EXISTS passages (
+    passage_id TEXT PRIMARY KEY,
+    object_id TEXT NOT NULL,
+    acquisition_id TEXT NOT NULL,
+    passage_index INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    source_url TEXT,
+    source_title TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (object_id) REFERENCES objects(object_id),
+    FOREIGN KEY (acquisition_id) REFERENCES acquisitions(acquisition_id),
+    UNIQUE (acquisition_id, passage_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_passages_object
+ON passages(object_id);
+
+CREATE INDEX IF NOT EXISTS idx_passages_acquisition
+ON passages(acquisition_id);
+
 CREATE TABLE IF NOT EXISTS collections (
     collection_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
