@@ -7,7 +7,7 @@ from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
-from warrigal.models import Batch, Collection, Job, Node, Source
+from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
 from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
 from warrigal.retrieval.passages import split_into_passages
@@ -323,6 +323,18 @@ def run_crawl(url: str) -> int:
                 object_id=acquisition_result.object_id,
                 acquisition_id=acquisition_result.acquisition_id,
             )
+
+            for passage in passages:
+                repository.save_passage(
+                    PassageRecord(
+                        object_id=acquisition_result.object_id,
+                        acquisition_id=acquisition_result.acquisition_id,
+                        passage_index=passage.index,
+                        text=passage.text,
+                        source_url=passage.source_url,
+                        source_title=passage.source_title,
+                    )
+                )
             if passages:
                 passage = passages[0]
 
