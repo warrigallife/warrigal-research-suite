@@ -369,3 +369,22 @@ class WarrigalRepository:
             """,
             (object_id,),
         ).fetchall()
+
+    def list_passages(self) -> list[sqlite3.Row]:
+        """Return all persistent searchable passages."""
+
+        return self.connection.execute(
+            """
+            SELECT
+                passage_id,
+                object_id,
+                acquisition_id,
+                passage_index,
+                text,
+                source_url,
+                source_title,
+                created_at
+            FROM passages
+            ORDER BY created_at ASC, passage_index ASC
+            """
+        ).fetchall()
