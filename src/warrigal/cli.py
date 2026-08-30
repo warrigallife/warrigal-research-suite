@@ -10,7 +10,8 @@ from warrigal.database import initialize_database
 from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
 from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
-from warrigal.retrieval.passages import split_into_passages
+from warrigal.retrieval.passages import passages_from_rows, split_into_passages
+from warrigal.retrieval.search import search_passages
 
 def build_parser() -> argparse.ArgumentParser:
     """Build Warrigal's command-line interface."""
@@ -67,6 +68,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Public HTTP/HTTPS URL to start crawling from.",
     )
 
+
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Search persistent Warrigal passages.",
+    )
+
+    search_parser.add_argument(
+        "query",
+        help="Question or search terms to find relevant evidence.",
+    )
     return parser
 
 def run_acquire(url: str) -> int:
@@ -364,7 +375,36 @@ def run_crawl(url: str) -> int:
 
     db.close()
     return 0
-     
+
+
+def run_search(query: str) -> int:
+    """Search persistent Warrigal passages."""
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+
+    rows = repository.list_passages()
+    passages = passages_from_rows(rows)
+    results = search_passages(query, passages)
+
+    print()
+    print("=== WARRIGAL SEARCH ===")
+    print(f"QUERY:   {query}")
+    print(f"RESULTS: {len(results)}")
+
+    for result in results:
+        print()
+        print(f"SCORE:       {result.score}")
+        print(f"TITLE:       {result.passage.source_title}")
+        print(f"SOURCE:      {result.passage.source_url}")
+        print(f"OBJECT:      {result.passage.object_id}")
+        print(f"ACQUISITION: {result.passage.acquisition_id}")
+        print(f"EVIDENCE:    {result.passage.text}")
+
+    db.close()
+    return 0
+
+
 def main() -> int:
     """Run the Warrigal command-line interface."""
 
@@ -385,6 +425,9 @@ def main() -> int:
 
     if args.command == "crawl":
         return run_crawl(args.url)
+
+    if args.command == "search":
+        return run_search(args.query)
 
     parser.print_help()
     return 0
