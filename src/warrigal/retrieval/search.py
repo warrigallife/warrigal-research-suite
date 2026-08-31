@@ -11,6 +11,8 @@ class SearchResult:
 
     passage: Passage
     score: float
+    matched_terms: tuple[str, ...]
+    query_coverage: float
 
 def _terms(text: str) -> set[str]:
     """Normalize text into searchable terms."""
@@ -32,7 +34,13 @@ def search_passages(
 
     for passage in passages:
         passage_terms = _terms(passage.text)
-        matching_terms = query_terms & passage_terms
+        matching_terms = tuple(sorted(query_terms & passage_terms))
+
+        query_coverage = (
+            len(matching_terms) / len(query_terms)
+            if query_terms
+            else 0.0
+        )
 
         score = float(len(matching_terms))
 
@@ -41,6 +49,8 @@ def search_passages(
                 SearchResult(
                     passage=passage,
                     score=score,
+                    matched_terms=matching_terms,
+                    query_coverage=query_coverage,
                 )
             )
 
