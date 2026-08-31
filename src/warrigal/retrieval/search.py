@@ -13,6 +13,7 @@ class SearchResult:
     score: float
     matched_terms: tuple[str, ...]
     query_coverage: float
+    term_span: int | None
 
 def _terms(text: str) -> set[str]:
     """Normalize text into searchable terms."""
@@ -22,6 +23,43 @@ def _terms(text: str) -> set[str]:
         for word in text.split()
         if word.strip(".,!?;:()[]{}\"'")
     }
+
+def _term_span(
+    text: str,
+    matched_terms: tuple[str, ...],
+) -> int | None:
+    """Measure the smallest word span containing the matched query terms."""
+
+    if len(matched_terms) < 2:
+        return None
+
+    words = [
+        word.strip(".,!?;:()[]{}\"'").lower()
+        for word in text.split()
+    ]
+
+    required_terms = set(matched_terms)
+    best_span: int | None = None
+
+    for start in range(len(words)):
+        if words[start] not in required_terms:
+            continue
+
+        found_terms: set[str] = set()
+
+        for end in range(start, len(words)):
+            if words[end] in required_terms:
+                found_terms.add(words[end])
+
+            if found_terms == required_terms:
+                span = end - start + 1
+
+                if best_span is None or span < best_span:
+                    best_span = span
+
+                break
+
+    return best_span
 
 def search_passages(
     query: str,
@@ -44,6 +82,11 @@ def search_passages(
 
         score = float(len(matching_terms))
 
+        term_span = _term_span(
+            passage.text,
+            matching_terms,
+        )
+
         if score > 0:
             results.append(
                 SearchResult(
@@ -51,6 +94,7 @@ def search_passages(
                     score=score,
                     matched_terms=matching_terms,
                     query_coverage=query_coverage,
+                    term_span=term_span,
                 )
             )
 
