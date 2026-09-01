@@ -14,6 +14,8 @@ class SearchResult:
     matched_terms: tuple[str, ...]
     query_coverage: float
     term_span: int | None
+    title_matched_terms: tuple[str, ...]
+    title_query_coverage: float
 
 def _terms(text: str) -> set[str]:
     """Normalize text into searchable terms."""
@@ -87,7 +89,16 @@ def search_passages(
             matching_terms,
         )
 
-        if score > 0:
+        title_terms = _terms(passage.source_title or "")
+        title_matched_terms = tuple(sorted(query_terms & title_terms))
+
+        title_query_coverage = (
+            len(title_matched_terms) / len(query_terms)
+            if query_terms
+            else 0.0
+        )
+
+        if score > 0 or title_query_coverage > 0:
             results.append(
                 SearchResult(
                     passage=passage,
@@ -95,6 +106,8 @@ def search_passages(
                     matched_terms=matching_terms,
                     query_coverage=query_coverage,
                     term_span=term_span,
+                    title_matched_terms=title_matched_terms,
+                    title_query_coverage=title_query_coverage,
                 )
             )
 
