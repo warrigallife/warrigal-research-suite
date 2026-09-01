@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from warrigal.retrieval.passages import Passage
+from warrigal.retrieval.query import analyze_query
 
 
 @dataclass
@@ -69,7 +70,8 @@ def search_passages(
 ) -> list[SearchResult]:
     """Rank passages by their relevance to a query."""
 
-    query_terms = _terms(query)
+    query_analysis = analyze_query(query)
+    query_terms = set(query_analysis.retrieval_terms)
     results: list[SearchResult] = []
 
     for passage in passages:
