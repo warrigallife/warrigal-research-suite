@@ -129,8 +129,14 @@ def _term_span(
 def search_passages(
     query: str,
     passages: list[Passage],
+    min_query_coverage: float = 0.0,
 ) -> list[SearchResult]:
     """Rank passages by their relevance to a query."""
+
+    if not 0.0 <= min_query_coverage <= 1.0:
+        raise ValueError(
+            "min_query_coverage must be between 0.0 and 1.0"
+        )
 
     query_analysis = analyze_query(query)
     query_terms = set(query_analysis.retrieval_terms)
@@ -149,6 +155,9 @@ def search_passages(
             if query_terms
             else 0.0
         )
+
+        if query_coverage < min_query_coverage:
+            continue
 
         score = float(len(matching_terms))
 
