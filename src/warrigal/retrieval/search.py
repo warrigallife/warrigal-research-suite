@@ -130,12 +130,18 @@ def search_passages(
     query: str,
     passages: list[Passage],
     min_query_coverage: float = 0.0,
+    max_results: int | None = None,
 ) -> list[SearchResult]:
     """Rank passages by their relevance to a query."""
 
     if not 0.0 <= min_query_coverage <= 1.0:
         raise ValueError(
             "min_query_coverage must be between 0.0 and 1.0"
+        )
+
+    if max_results is not None and max_results < 1:
+        raise ValueError(
+            "max_results must be at least 1 or None"
         )
 
     query_analysis = analyze_query(query)
@@ -232,5 +238,8 @@ def search_passages(
         key=ranking_key,
         reverse=True,
     )
+
+    if max_results is not None:
+        return results[:max_results]
 
     return results
