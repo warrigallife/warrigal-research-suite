@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from warrigal.retrieval.passages import Passage
-from warrigal.retrieval.query import analyze_query
+from warrigal.retrieval.query import analyze_query, canonical_word
 
 
 @dataclass
@@ -13,9 +13,13 @@ class SearchResult:
     passage: Passage
     score: float
     matched_terms: tuple[str, ...]
+    exact_matched_terms: tuple[str, ...]
+    family_matched_terms: tuple[str, ...]
     query_coverage: float
     term_span: int | None
     title_matched_terms: tuple[str, ...]
+    title_exact_matched_terms: tuple[str, ...]
+    title_family_matched_terms: tuple[str, ...]
     title_query_coverage: float
 
 def _terms(text: str) -> set[str]:
@@ -27,6 +31,34 @@ def _terms(text: str) -> set[str]:
         if word.strip(".,!?;:()[]{}\"'")
     }
 
+
+def _match_query_terms(
+    query_terms: set[str],
+    document_terms: set[str],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Separate exact matches from conservative word-family matches."""
+
+    exact_matched_terms = query_terms & document_terms
+
+    document_canonical_terms = {
+        canonical_word(term)
+        for term in document_terms
+    }
+
+    matched_terms = {
+        term
+        for term in query_terms
+        if canonical_word(term) in document_canonical_terms
+    }
+
+    family_matched_terms = matched_terms - exact_matched_terms
+
+    return (
+        tuple(sorted(matched_terms)),
+        tuple(sorted(exact_matched_terms)),
+        tuple(sorted(family_matched_terms)),
+    )
+
 def _term_span(
     text: str,
     matched_terms: tuple[str, ...],
@@ -37,11 +69,14 @@ def _term_span(
         return None
 
     words = [
-        word.strip(".,!?;:()[]{}\"'").lower()
+        canonical_word(word.strip(".,!?;:()[]{}\"'").lower())
         for word in text.split()
     ]
 
-    required_terms = set(matched_terms)
+    required_terms = {
+        canonical_word(term)
+        for term in matched_terms
+    }
     best_span: int | None = None
 
     for start in range(len(words)):
@@ -76,7 +111,11 @@ def search_passages(
 
     for passage in passages:
         passage_terms = _terms(passage.text)
-        matching_terms = tuple(sorted(query_terms & passage_terms))
+        (
+            matching_terms,
+            exact_matched_terms,
+            family_matched_terms,
+        ) = _match_query_terms(query_terms, passage_terms)
 
         query_coverage = (
             len(matching_terms) / len(query_terms)
@@ -92,7 +131,11 @@ def search_passages(
         )
 
         title_terms = _terms(passage.source_title or "")
-        title_matched_terms = tuple(sorted(query_terms & title_terms))
+        (
+            title_matched_terms,
+            title_exact_matched_terms,
+            title_family_matched_terms,
+        ) = _match_query_terms(query_terms, title_terms)
 
         title_query_coverage = (
             len(title_matched_terms) / len(query_terms)
@@ -106,9 +149,13 @@ def search_passages(
                     passage=passage,
                     score=score,
                     matched_terms=matching_terms,
+                    exact_matched_terms=exact_matched_terms,
+                    family_matched_terms=family_matched_terms,
                     query_coverage=query_coverage,
                     term_span=term_span,
                     title_matched_terms=title_matched_terms,
+                    title_exact_matched_terms=title_exact_matched_terms,
+                    title_family_matched_terms=title_family_matched_terms,
                     title_query_coverage=title_query_coverage,
                 )
             )
