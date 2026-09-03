@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from io import BytesIO
+
+from pypdf import PdfReader
 
 @dataclass
 class ExtractedContent:
@@ -65,3 +68,31 @@ def extract_html_content(data: bytes) -> ExtractedContent:
         title=title,
         text=text,
     )
+
+def extract_pdf_content(data: bytes) -> ExtractedContent:
+    """Extract readable content and title metadata from PDF bytes."""
+
+    reader = PdfReader(BytesIO(data))
+
+    metadata = reader.metadata
+    title = None
+
+    if metadata is not None:
+        title = metadata.title
+
+        if title is not None:
+            title = title.strip() or None
+
+    page_text = []
+
+    for page in reader.pages:
+        text = page.extract_text()
+
+        if text:
+            page_text.append(text.strip())
+
+    return ExtractedContent(
+        title=title,
+        text="\n\n".join(page_text).strip(),
+    )
+
