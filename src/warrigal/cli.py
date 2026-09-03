@@ -78,6 +78,21 @@ def build_parser() -> argparse.ArgumentParser:
         "query",
         help="Question or search terms to find relevant evidence.",
     )
+
+    search_parser.add_argument(
+        "--min-coverage",
+        type=float,
+        default=0.0,
+        help="Minimum query coverage required, from 0.0 to 1.0.",
+    )
+
+    search_parser.add_argument(
+        "--max-results",
+        type=int,
+        default=None,
+        help="Maximum number of ranked results to return.",
+    )
+
     return parser
 
 def run_acquire(url: str) -> int:
@@ -377,7 +392,11 @@ def run_crawl(url: str) -> int:
     return 0
 
 
-def run_search(query: str) -> int:
+def run_search(
+    query: str,
+    min_query_coverage: float = 0.0,
+    max_results: int | None = None,
+) -> int:
     """Search persistent Warrigal passages."""
 
     db = initialize_database()
@@ -385,7 +404,12 @@ def run_search(query: str) -> int:
 
     rows = repository.list_passages()
     passages = passages_from_rows(rows)
-    results = search_passages(query, passages)
+    results = search_passages(
+        query,
+        passages,
+        min_query_coverage=min_query_coverage,
+        max_results=max_results,
+    )
 
     print()
     print("=== WARRIGAL SEARCH ===")
@@ -427,7 +451,11 @@ def main() -> int:
         return run_crawl(args.url)
 
     if args.command == "search":
-        return run_search(args.query)
+        return run_search(
+            args.query,
+            min_query_coverage=args.min_coverage,
+            max_results=args.max_results,
+        )
 
     parser.print_help()
     return 0
