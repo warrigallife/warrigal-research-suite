@@ -162,6 +162,35 @@ class SearchPassagesTests(unittest.TestCase):
             (("ganoderma", 1),),
         )
 
+    def test_higher_title_coverage_breaks_ranking_tie(self):
+        passages = [
+            Passage(
+                index=0,
+                text="Ganoderma australe",
+                source_title="Ganoderma",
+            ),
+            Passage(
+                index=1,
+                text="Ganoderma australe",
+                source_title="Ganoderma australe",
+            ),
+        ]
+
+        results = search_passages(
+            "Ganoderma australe",
+            passages,
+        )
+
+        self.assertEqual(results[0].passage.index, 1)
+        self.assertEqual(
+            results[0].title_query_coverage,
+            1.0,
+        )
+        self.assertEqual(
+            results[1].title_query_coverage,
+            0.5,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
