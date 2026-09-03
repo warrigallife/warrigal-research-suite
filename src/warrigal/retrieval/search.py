@@ -218,7 +218,7 @@ def search_passages(
         proximity = (
             -result.term_span
             if result.term_span is not None
-            else 0
+            else -(10**18)
         )
 
         total_term_frequency = sum(
