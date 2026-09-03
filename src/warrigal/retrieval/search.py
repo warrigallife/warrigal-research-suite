@@ -193,8 +193,34 @@ def search_passages(
                 )
             )
 
+    def ranking_key(
+        result: SearchResult,
+    ) -> tuple[float, int, float, int, int]:
+        """Build an explainable deterministic relevance ranking key."""
+
+        exact_match_count = len(result.exact_matched_terms)
+
+        proximity = (
+            -result.term_span
+            if result.term_span is not None
+            else 0
+        )
+
+        total_term_frequency = sum(
+            count
+            for _, count in result.query_term_frequency
+        )
+
+        return (
+            result.query_coverage,
+            exact_match_count,
+            result.title_query_coverage,
+            proximity,
+            total_term_frequency,
+        )
+
     results.sort(
-        key=lambda result: result.score,
+        key=ranking_key,
         reverse=True,
     )
 
