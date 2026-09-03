@@ -106,6 +106,35 @@ class SearchPassagesTests(unittest.TestCase):
 
         self.assertEqual(len(results), 2)
 
+    def test_exact_title_match_beats_family_title_match(self):
+        passages = [
+            Passage(
+                index=1,
+                text="background material",
+                source_title="Studies",
+            ),
+            Passage(
+                index=0,
+                text="background material",
+                source_title="Study",
+            ),
+        ]
+
+        results = search_passages(
+            "study",
+            passages,
+        )
+
+        self.assertEqual(results[0].passage.index, 0)
+        self.assertEqual(
+            results[0].title_exact_matched_terms,
+            ("study",),
+        )
+        self.assertEqual(
+            results[1].title_family_matched_terms,
+            ("study",),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
