@@ -418,12 +418,22 @@ def run_search(
 
     for result in results:
         print()
-        print(f"SCORE:       {result.score}")
-        print(f"TITLE:       {result.passage.source_title}")
-        print(f"SOURCE:      {result.passage.source_url}")
-        print(f"OBJECT:      {result.passage.object_id}")
-        print(f"ACQUISITION: {result.passage.acquisition_id}")
-        print(f"EVIDENCE:    {result.passage.text}")
+        print(f"SCORE:          {result.score}")
+        print(f"COVERAGE:       {result.query_coverage:.2f}")
+        print(f"MATCHED:        {', '.join(result.matched_terms)}")
+        print(f"EXACT:          {', '.join(result.exact_matched_terms)}")
+        print(f"FAMILY:         {', '.join(result.family_matched_terms)}")
+        print(f"TERM FREQUENCY: {result.query_term_frequency}")
+        print(f"TERM SPAN:      {result.term_span}")
+        print(f"TITLE COVERAGE: {result.title_query_coverage:.2f}")
+        print(f"TITLE MATCHED:  {', '.join(result.title_matched_terms)}")
+        print(f"TITLE EXACT:    {', '.join(result.title_exact_matched_terms)}")
+        print(f"TITLE FAMILY:   {', '.join(result.title_family_matched_terms)}")
+        print(f"TITLE:          {result.passage.source_title}")
+        print(f"SOURCE:         {result.passage.source_url}")
+        print(f"OBJECT:         {result.passage.object_id}")
+        print(f"ACQUISITION:    {result.passage.acquisition_id}")
+        print(f"EVIDENCE:       {result.passage.text}")
 
     db.close()
     return 0
