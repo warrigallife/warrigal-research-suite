@@ -24,6 +24,41 @@ LOW_INFORMATION_TERMS = frozenset(
 )
 
 
+WORD_FAMILIES = {
+    "contain": frozenset(
+        {
+            "contain",
+            "contains",
+            "contained",
+            "containing",
+        }
+    ),
+    "study": frozenset(
+        {
+            "study",
+            "studies",
+            "studied",
+            "studying",
+        }
+    ),
+    "produce": frozenset(
+        {
+            "produce",
+            "produces",
+            "produced",
+            "producing",
+        }
+    ),
+}
+
+
+FORM_TO_CANONICAL = {
+    form: canonical
+    for canonical, forms in WORD_FAMILIES.items()
+    for form in forms
+}
+
+
 @dataclass(frozen=True)
 class QueryAnalysis:
     """A deconstructed research query."""
@@ -38,6 +73,19 @@ def _normalize_term(word: str) -> str:
     """Normalize one query word without changing query meaning."""
 
     return word.strip(".,!?;:()[]{}\"'").lower()
+
+
+def canonical_word(term: str) -> str:
+    """Return the canonical form of a known word, otherwise preserve it."""
+
+    return FORM_TO_CANONICAL.get(term, term)
+
+
+def word_family(term: str) -> frozenset[str]:
+    """Return a known word family, otherwise preserve the term."""
+
+    canonical = canonical_word(term)
+    return WORD_FAMILIES.get(canonical, frozenset({term}))
 
 
 def analyze_query(query: str) -> QueryAnalysis:
