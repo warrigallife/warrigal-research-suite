@@ -135,6 +135,33 @@ class SearchPassagesTests(unittest.TestCase):
             ("study",),
         )
 
+    def test_higher_term_frequency_breaks_ranking_tie(self):
+        passages = [
+            Passage(
+                index=0,
+                text="Ganoderma background material.",
+            ),
+            Passage(
+                index=1,
+                text="Ganoderma Ganoderma background material.",
+            ),
+        ]
+
+        results = search_passages(
+            "Ganoderma",
+            passages,
+        )
+
+        self.assertEqual(results[0].passage.index, 1)
+        self.assertEqual(
+            results[0].query_term_frequency,
+            (("ganoderma", 2),),
+        )
+        self.assertEqual(
+            results[1].query_term_frequency,
+            (("ganoderma", 1),),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
