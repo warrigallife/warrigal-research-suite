@@ -1,6 +1,6 @@
 import unittest
 
-from warrigal.retrieval.query import analyze_query
+from warrigal.retrieval.query import analyze_query, canonical_word
 
 
 class QueryAnalysisTests(unittest.TestCase):
@@ -34,6 +34,23 @@ class QueryAnalysisTests(unittest.TestCase):
                 "does",
             ),
         )
+
+    def test_unknown_scientific_terms_are_preserved(self):
+        terms = (
+            "species",
+            "analysis",
+            "triterpenes",
+            "polysaccharides",
+            "ganoderma",
+            "australe",
+        )
+
+        for term in terms:
+            with self.subTest(term=term):
+                self.assertEqual(
+                    canonical_word(term),
+                    term,
+                )
 
 
 if __name__ == "__main__":
