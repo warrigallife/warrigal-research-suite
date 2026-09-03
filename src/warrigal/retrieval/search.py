@@ -15,6 +15,7 @@ class SearchResult:
     matched_terms: tuple[str, ...]
     exact_matched_terms: tuple[str, ...]
     family_matched_terms: tuple[str, ...]
+    query_term_frequency: tuple[tuple[str, int], ...]
     query_coverage: float
     term_span: int | None
     title_matched_terms: tuple[str, ...]
@@ -58,6 +59,32 @@ def _match_query_terms(
         tuple(sorted(exact_matched_terms)),
         tuple(sorted(family_matched_terms)),
     )
+
+def _query_term_frequency(
+    text: str,
+    matched_terms: tuple[str, ...],
+) -> tuple[tuple[str, int], ...]:
+    """Count occurrences of matched query terms, including known word-family forms."""
+
+    words = [
+        canonical_word(word.strip(".,!?;:()[]{}\"'").lower())
+        for word in text.split()
+        if word.strip(".,!?;:()[]{}\"'")
+    ]
+
+    frequencies = []
+
+    for term in matched_terms:
+        canonical = canonical_word(term)
+        count = sum(
+            1
+            for word in words
+            if word == canonical
+        )
+        frequencies.append((term, count))
+
+    return tuple(frequencies)
+
 
 def _term_span(
     text: str,
@@ -125,6 +152,11 @@ def search_passages(
 
         score = float(len(matching_terms))
 
+        query_term_frequency = _query_term_frequency(
+            passage.text,
+            matching_terms,
+        )
+
         term_span = _term_span(
             passage.text,
             matching_terms,
@@ -151,6 +183,7 @@ def search_passages(
                     matched_terms=matching_terms,
                     exact_matched_terms=exact_matched_terms,
                     family_matched_terms=family_matched_terms,
+                    query_term_frequency=query_term_frequency,
                     query_coverage=query_coverage,
                     term_span=term_span,
                     title_matched_terms=title_matched_terms,
