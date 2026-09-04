@@ -370,6 +370,21 @@ class WarrigalRepository:
             (object_id,),
         ).fetchall()
 
+    def object_has_passages(self, object_id: str) -> bool:
+        """Return whether an object already has searchable passages."""
+
+        row = self.connection.execute(
+            """
+            SELECT 1
+            FROM passages
+            WHERE object_id = ?
+            LIMIT 1
+            """,
+            (object_id,),
+        ).fetchone()
+
+        return row is not None
+
     def list_passages(self) -> list[sqlite3.Row]:
         """Return all persistent searchable passages."""
 
