@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from warrigal.acquisition.crawler import WebCrawler
-from warrigal.acquisition.content import extract_html_content
+from warrigal.acquisition.content import (
+    extract_html_content,
+    extract_pdf_content,
+)
 from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.acquisition.web import WebFetcher
@@ -31,6 +35,16 @@ def build_parser() -> argparse.ArgumentParser:
     acquire_parser.add_argument(
         "url",
         help="Public HTTP/HTTPS URL to acquire.",
+    )
+
+    ingest_pdf_parser = subparsers.add_parser(
+        "ingest-pdf",
+        help="Ingest a local PDF into the Warrigal research library.",
+    )
+
+    ingest_pdf_parser.add_argument(
+        "path",
+        help="Path to a local PDF file.",
     )
 
     subparsers.add_parser(
@@ -167,6 +181,118 @@ def run_acquire(url: str) -> int:
 
     db.close()
     return 0
+
+def run_ingest_pdf(path: str) -> int:
+    """Ingest a local PDF into the persistent Warrigal research corpus."""
+
+    pdf_path = Path(path).expanduser().resolve()
+
+    if not pdf_path.is_file():
+        print(f"WARRIGAL: PDF not found: {pdf_path}")
+        return 1
+
+    if pdf_path.suffix.lower() != ".pdf":
+        print(f"WARRIGAL: not a PDF file: {pdf_path}")
+        return 1
+
+    data = pdf_path.read_bytes()
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    object_store = ObjectStore()
+
+    node = Node(name="Warrigal CLI")
+    repository.save_node(node)
+
+    batch = Batch(
+        node_id=node.node_id,
+        label="CLI PDF ingestion",
+    )
+    repository.save_batch(batch)
+
+    job = Job(
+        name="Local PDF ingestion",
+        node_id=node.node_id,
+        batch_id=batch.batch_id,
+    )
+    repository.save_job(job)
+
+    collection = Collection(
+        name="CLI PDF Library",
+        description="Local PDFs ingested through the Warrigal CLI.",
+    )
+    repository.save_collection(collection)
+
+    source = Source(
+        source_type="file",
+        locator=str(pdf_path),
+        final_locator=str(pdf_path),
+        metadata={
+            "content_type": "application/pdf",
+            "filename": pdf_path.name,
+        },
+    )
+    repository.save_source(source)
+
+    service = AcquisitionService(
+        repository=repository,
+        object_store=object_store,
+    )
+
+    acquisition_result = service.acquire_bytes(
+        data=data,
+        source_id=source.source_id,
+        job_id=job.job_id,
+        node_id=node.node_id,
+        batch_id=batch.batch_id,
+        method="local_pdf",
+        mime_type="application/pdf",
+        original_filename=pdf_path.name,
+        collection_id=collection.collection_id,
+        metadata={
+            "path": str(pdf_path),
+        },
+    )
+
+    content = extract_pdf_content(data)
+
+    passages = split_into_passages(
+        content.text,
+        source_url=str(pdf_path),
+        source_title=content.title or pdf_path.name,
+        object_id=acquisition_result.object_id,
+        acquisition_id=acquisition_result.acquisition_id,
+    )
+
+    for passage in passages:
+        repository.save_passage(
+            PassageRecord(
+                object_id=acquisition_result.object_id,
+                acquisition_id=acquisition_result.acquisition_id,
+                passage_index=passage.index,
+                text=passage.text,
+                source_url=passage.source_url,
+                source_title=passage.source_title,
+            )
+        )
+
+    print()
+    print("=== WARRIGAL PDF INGESTION ===")
+    print(f"FILE:           {pdf_path}")
+    print(f"TITLE:          {content.title or pdf_path.name}")
+    print(f"OBJECT:         {acquisition_result.object_id}")
+    print(f"ACQUISITION:    {acquisition_result.acquisition_id}")
+    print(f"SHA-256:        {acquisition_result.sha256}")
+    print(f"SIZE:           {acquisition_result.size_bytes}")
+    print(f"ARCHIVE PATH:   {acquisition_result.archive_path}")
+    print(f"DEDUPLICATED:   {acquisition_result.deduplicated}")
+    print(f"PASSAGES:       {len(passages)}")
+    print()
+    print("WARRIGAL: PDF ingestion complete")
+
+    db.close()
+    return 0
+
 
 def run_history() -> int:
     """Show Warrigal's acquisition history."""
@@ -341,36 +467,40 @@ def run_crawl(url: str) -> int:
         )
         if response.content_type == "text/html":
             content = extract_html_content(response.data)
+        elif response.content_type == "application/pdf":
+            content = extract_pdf_content(response.data)
+        else:
+            continue
 
-            passages = split_into_passages(
-                content.text,
-                source_url=response.final_url,
-                source_title=content.title,
-                object_id=acquisition_result.object_id,
-                acquisition_id=acquisition_result.acquisition_id,
-            )
+        passages = split_into_passages(
+            content.text,
+            source_url=response.final_url,
+            source_title=content.title,
+            object_id=acquisition_result.object_id,
+            acquisition_id=acquisition_result.acquisition_id,
+        )
 
-            for passage in passages:
-                repository.save_passage(
-                    PassageRecord(
-                        object_id=acquisition_result.object_id,
-                        acquisition_id=acquisition_result.acquisition_id,
-                        passage_index=passage.index,
-                        text=passage.text,
-                        source_url=passage.source_url,
-                        source_title=passage.source_title,
-                    )
+        for passage in passages:
+            repository.save_passage(
+                PassageRecord(
+                    object_id=acquisition_result.object_id,
+                    acquisition_id=acquisition_result.acquisition_id,
+                    passage_index=passage.index,
+                    text=passage.text,
+                    source_url=passage.source_url,
+                    source_title=passage.source_title,
                 )
-            if passages:
-                passage = passages[0]
+            )
+        if passages:
+            passage = passages[0]
 
-                print()
-                print("=== WARRIGAL REAL PROVENANCE BRIDGE ===")
-                print("TITLE:", passage.source_title)
-                print("SOURCE:", passage.source_url)
-                print("OBJECT:", passage.object_id)
-                print("ACQUISITION:", passage.acquisition_id)
-                print("EVIDENCE:", passage.text[:300])
+            print()
+            print("=== WARRIGAL REAL PROVENANCE BRIDGE ===")
+            print("TITLE:", passage.source_title)
+            print("SOURCE:", passage.source_url)
+            print("OBJECT:", passage.object_id)
+            print("ACQUISITION:", passage.acquisition_id)
+            print("EVIDENCE:", passage.text[:300])
 
     print()
     print("=== WARRIGAL WEB CRAWL ===")
@@ -447,6 +577,9 @@ def main() -> int:
 
     if args.command == "acquire":
         return run_acquire(args.url)
+
+    if args.command == "ingest-pdf":
+        return run_ingest_pdf(args.path)
 
     if args.command == "history":
         return run_history()
