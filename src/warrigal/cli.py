@@ -475,6 +475,9 @@ def run_crawl(url: str) -> int:
                 "final_url": response.final_url,
             },
         )
+        if repository.object_has_passages(acquisition_result.object_id):
+            continue
+
         if response.content_type == "text/html":
             content = extract_html_content(response.data)
         elif response.content_type == "application/pdf":
