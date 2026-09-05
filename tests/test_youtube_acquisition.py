@@ -88,5 +88,54 @@ class YouTubeAcquisitionTests(unittest.TestCase):
         )
 
 
+    def test_parse_json3_transcript_preserves_caption_events(self):
+        import json
+
+        from warrigal.acquisition.youtube import parse_json3_transcript
+
+        payload = {
+            "events": [
+                {
+                    "tStartMs": 1000,
+                    "dDurationMs": 2500,
+                    "segs": [
+                        {"utf8": "First "},
+                        {"utf8": "caption"},
+                    ],
+                },
+                {
+                    "tStartMs": 3000,
+                    "segs": [
+                        {"utf8": "Second caption"},
+                    ],
+                },
+                {
+                    "tStartMs": 4000,
+                    "dDurationMs": 1000,
+                    "segs": [],
+                },
+                {
+                    "dDurationMs": 1000,
+                    "segs": [
+                        {"utf8": "Missing timestamp"},
+                    ],
+                },
+            ]
+        }
+
+        segments = parse_json3_transcript(
+            json.dumps(payload).encode("utf-8")
+        )
+
+        self.assertEqual(len(segments), 2)
+
+        self.assertEqual(segments[0].start_ms, 1000)
+        self.assertEqual(segments[0].duration_ms, 2500)
+        self.assertEqual(segments[0].text, "First caption")
+
+        self.assertEqual(segments[1].start_ms, 3000)
+        self.assertIsNone(segments[1].duration_ms)
+        self.assertEqual(segments[1].text, "Second caption")
+
 if __name__ == "__main__":
     unittest.main()

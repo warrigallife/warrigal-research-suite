@@ -1,6 +1,7 @@
 """YouTube source discovery and metadata extraction for Warrigal."""
 
 from dataclasses import dataclass
+import json
 
 import yt_dlp
 
@@ -10,6 +11,13 @@ class YouTubeVideo:
     video_id: str
     title: str
     url: str
+
+
+@dataclass(frozen=True)
+class YouTubeTranscriptSegment:
+    start_ms: int
+    duration_ms: int | None
+    text: str
 
 
 @dataclass(frozen=True)
@@ -110,3 +118,44 @@ def extract_video_metadata(video_url: str) -> YouTubeVideoMetadata:
             str(info["description"]) if info.get("description") is not None else None
         ),
     )
+
+def parse_json3_transcript(data: bytes | str) -> list[YouTubeTranscriptSegment]:
+    """Parse YouTube JSON3 captions while preserving raw event structure."""
+
+    if isinstance(data, bytes):
+        data = data.decode("utf-8")
+
+    payload = json.loads(data)
+    events = payload.get("events") or []
+    segments: list[YouTubeTranscriptSegment] = []
+
+    for event in events:
+        caption_parts = event.get("segs") or []
+        text = "".join(
+            str(part.get("utf8", ""))
+            for part in caption_parts
+        ).strip()
+
+        if not text:
+            continue
+
+        start_ms = event.get("tStartMs")
+        if start_ms is None:
+            continue
+
+        duration_ms = event.get("dDurationMs")
+
+        segments.append(
+            YouTubeTranscriptSegment(
+                start_ms=int(start_ms),
+                duration_ms=(
+                    int(duration_ms)
+                    if duration_ms is not None
+                    else None
+                ),
+                text=text,
+            )
+        )
+
+    return segments
+
