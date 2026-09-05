@@ -83,6 +83,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
 
+    archive_parser = subparsers.add_parser(
+        "ingest-archive",
+        help="Recursively ingest PDFs from a local archive directory.",
+    )
+
+    archive_parser.add_argument(
+        "path",
+        help="Local archive directory containing PDFs.",
+    )
+
     search_parser = subparsers.add_parser(
         "search",
         help="Search persistent Warrigal passages.",
@@ -522,6 +532,82 @@ def run_crawl(url: str) -> int:
     return 0
 
 
+def run_ingest_archive(path: str) -> int:
+    """Recursively ingest PDFs from a local archive directory."""
+
+    from pathlib import Path
+
+    from warrigal.acquisition.archive import ingest_pdf_archive
+    from warrigal.models import Batch, Collection, Job, Node
+    from warrigal.object_store import ObjectStore
+
+    archive_root = Path(path).expanduser().resolve()
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+
+    try:
+        node = Node(name="Warrigal CLI")
+        repository.save_node(node)
+
+        batch = Batch(
+            node_id=node.node_id,
+            label=f"Archive ingestion: {archive_root}",
+        )
+        repository.save_batch(batch)
+
+        job = Job(
+            name="Local PDF archive ingestion",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+
+        collection = Collection(
+            name=f"Archive: {archive_root.name}",
+            description=f"PDFs recursively ingested from {archive_root}.",
+        )
+        repository.save_collection(collection)
+
+        result = ingest_pdf_archive(
+            archive_root,
+            repository=repository,
+            object_store=ObjectStore(),
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+        )
+
+        print()
+        print("=== WARRIGAL ARCHIVE INGESTION ===")
+        print(f"ROOT: {result.root}")
+        print()
+
+        for file_result in result.files:
+            print(
+                f"{file_result.status.upper():9} "
+                f"{file_result.path}"
+            )
+
+            if file_result.error is not None:
+                print(f"          ERROR: {file_result.error}")
+
+        print()
+        print("SUMMARY")
+        print(f"DISCOVERED: {result.discovered_count}")
+        print(f"INGESTED:   {result.ingested_count}")
+        print(f"DUPLICATE:  {result.duplicate_count}")
+        print(f"NO TEXT:    {result.no_text_count}")
+        print(f"FAILED:     {result.failed_count}")
+        print(f"PASSAGES:   {result.passage_count}")
+
+        return 1 if result.failed_count else 0
+
+    finally:
+        db.close()
+
+
 def run_search(
     query: str,
     min_query_coverage: float = 0.0,
@@ -580,6 +666,9 @@ def main() -> int:
 
     if args.command == "ingest-pdf":
         return run_ingest_pdf(args.path)
+
+    if args.command == "ingest-archive":
+        return run_ingest_archive(args.path)
 
     if args.command == "history":
         return run_history()
