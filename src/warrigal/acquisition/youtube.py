@@ -1,4 +1,4 @@
-"""YouTube source discovery for Warrigal."""
+"""YouTube source discovery and metadata extraction for Warrigal."""
 
 from dataclasses import dataclass
 
@@ -10,6 +10,18 @@ class YouTubeVideo:
     video_id: str
     title: str
     url: str
+
+
+@dataclass(frozen=True)
+class YouTubeVideoMetadata:
+    video_id: str
+    title: str
+    channel: str | None
+    channel_id: str | None
+    upload_date: str | None
+    duration: int | None
+    url: str
+    description: str | None
 
 
 def discover_channel_videos(
@@ -55,3 +67,46 @@ def discover_channel_videos(
         )
 
     return videos
+
+
+def extract_video_metadata(video_url: str) -> YouTubeVideoMetadata:
+    """Extract metadata for a public YouTube video without downloading media."""
+
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+    }
+
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(video_url, download=False)
+
+    video_id = info.get("id")
+    title = info.get("title")
+
+    if not video_id:
+        raise ValueError("YouTube video metadata did not contain a video ID")
+    if not title:
+        raise ValueError("YouTube video metadata did not contain a title")
+
+    duration = info.get("duration")
+
+    return YouTubeVideoMetadata(
+        video_id=str(video_id),
+        title=str(title),
+        channel=str(info["channel"]) if info.get("channel") is not None else None,
+        channel_id=(
+            str(info["channel_id"]) if info.get("channel_id") is not None else None
+        ),
+        upload_date=(
+            str(info["upload_date"]) if info.get("upload_date") is not None else None
+        ),
+        duration=int(duration) if duration is not None else None,
+        url=str(
+            info.get("webpage_url")
+            or f"https://www.youtube.com/watch?v={video_id}"
+        ),
+        description=(
+            str(info["description"]) if info.get("description") is not None else None
+        ),
+    )
