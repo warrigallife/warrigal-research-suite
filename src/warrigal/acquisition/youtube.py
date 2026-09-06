@@ -21,6 +21,17 @@ class YouTubeTranscriptSegment:
 
 
 @dataclass(frozen=True)
+class YouTubeTranscriptUnit:
+    start_ms: int
+    end_ms: int | None
+    text: str
+    source_segment_start: int
+    source_start_char: int
+    source_segment_end: int
+    source_end_char: int
+
+
+@dataclass(frozen=True)
 class YouTubeVideoMetadata:
     video_id: str
     title: str
@@ -158,4 +169,142 @@ def parse_json3_transcript(data: bytes | str) -> list[YouTubeTranscriptSegment]:
         )
 
     return segments
+
+def build_transcript_unit(
+    segments: list[YouTubeTranscriptSegment],
+    start_index: int,
+    end_index: int,
+) -> YouTubeTranscriptUnit:
+    """Build one derived transcript unit from consecutive raw segments."""
+
+    if start_index < 0:
+        raise ValueError("start_index must be at least 0")
+
+    if end_index < start_index:
+        raise ValueError("end_index must be greater than or equal to start_index")
+
+    if end_index >= len(segments):
+        raise IndexError("end_index is outside the transcript")
+
+    selected = segments[start_index : end_index + 1]
+
+    text = " ".join(
+        segment.text.strip()
+        for segment in selected
+        if segment.text.strip()
+    )
+
+    first = selected[0]
+    last = selected[-1]
+
+    end_ms = (
+        last.start_ms + last.duration_ms
+        if last.duration_ms is not None
+        else None
+    )
+
+    return YouTubeTranscriptUnit(
+        start_ms=first.start_ms,
+        end_ms=end_ms,
+        text=text,
+        source_segment_start=start_index,
+        source_start_char=0,
+        source_segment_end=end_index,
+        source_end_char=len(last.text),
+    )
+
+def build_transcript_sentences(
+    segments: list[YouTubeTranscriptSegment],
+) -> list[YouTubeTranscriptUnit]:
+    """Build punctuation-delimited transcript units from raw caption segments."""
+
+    units: list[YouTubeTranscriptUnit] = []
+
+    parts: list[str] = []
+    source_segment_start: int | None = None
+    source_start_char: int | None = None
+
+    for segment_index, segment in enumerate(segments):
+        text = segment.text
+
+        position = 0
+
+        while position < len(text):
+            if source_segment_start is None:
+                while position < len(text) and text[position].isspace():
+                    position += 1
+
+                if position >= len(text):
+                    break
+
+                source_segment_start = segment_index
+                source_start_char = position
+
+            boundary_position = None
+
+            for char_index in range(position, len(text)):
+                if text[char_index] in ".?!":
+                    boundary_position = char_index
+                    break
+
+            if boundary_position is None:
+                fragment = text[position:].strip()
+
+                if fragment:
+                    parts.append(fragment)
+
+                break
+
+            fragment = text[position : boundary_position + 1].strip()
+
+            if fragment:
+                parts.append(fragment)
+
+            sentence_text = " ".join(parts).strip()
+
+            if sentence_text:
+                end_ms = (
+                    segment.start_ms + segment.duration_ms
+                    if segment.duration_ms is not None
+                    else None
+                )
+
+                units.append(
+                    YouTubeTranscriptUnit(
+                        start_ms=segments[source_segment_start].start_ms,
+                        end_ms=end_ms,
+                        text=sentence_text,
+                        source_segment_start=source_segment_start,
+                        source_start_char=source_start_char,
+                        source_segment_end=segment_index,
+                        source_end_char=boundary_position + 1,
+                    )
+                )
+
+            parts = []
+            source_segment_start = None
+            source_start_char = None
+            position = boundary_position + 1
+
+    if source_segment_start is not None and parts:
+        last_index = len(segments) - 1
+        last = segments[last_index]
+
+        units.append(
+            YouTubeTranscriptUnit(
+                start_ms=segments[source_segment_start].start_ms,
+                end_ms=(
+                    last.start_ms + last.duration_ms
+                    if last.duration_ms is not None
+                    else None
+                ),
+                text=" ".join(parts).strip(),
+                source_segment_start=source_segment_start,
+                source_start_char=source_start_char,
+                source_segment_end=last_index,
+                source_end_char=len(last.text),
+            )
+        )
+
+    return units
 

@@ -137,5 +137,142 @@ class YouTubeAcquisitionTests(unittest.TestCase):
         self.assertIsNone(segments[1].duration_ms)
         self.assertEqual(segments[1].text, "Second caption")
 
+    def test_build_transcript_unit_preserves_source_range(self):
+        from warrigal.acquisition.youtube import (
+            YouTubeTranscriptSegment,
+            build_transcript_unit,
+        )
+
+        segments = [
+            YouTubeTranscriptSegment(
+                start_ms=1000,
+                duration_ms=2500,
+                text="First part of",
+            ),
+            YouTubeTranscriptSegment(
+                start_ms=2500,
+                duration_ms=3000,
+                text="the sentence.",
+            ),
+            YouTubeTranscriptSegment(
+                start_ms=5000,
+                duration_ms=2000,
+                text="I have uh I have uh",
+            ),
+            YouTubeTranscriptSegment(
+                start_ms=6500,
+                duration_ms=1500,
+                text="finished.",
+            ),
+        ]
+
+        original_text = [segment.text for segment in segments]
+
+        unit = build_transcript_unit(
+            segments,
+            0,
+            3,
+        )
+
+        self.assertEqual(unit.start_ms, 1000)
+        self.assertEqual(unit.end_ms, 8000)
+        self.assertEqual(unit.source_segment_start, 0)
+        self.assertEqual(unit.source_start_char, 0)
+        self.assertEqual(unit.source_segment_end, 3)
+        self.assertEqual(unit.source_end_char, len(segments[3].text))
+        self.assertEqual(
+            unit.text,
+            "First part of the sentence. "
+            "I have uh I have uh finished.",
+        )
+
+        self.assertEqual(
+            [segment.text for segment in segments],
+            original_text,
+        )
+
+    def test_build_transcript_sentences_handles_internal_and_cross_segment_boundaries(self):
+        from warrigal.acquisition.youtube import (
+            YouTubeTranscriptSegment,
+            build_transcript_sentences,
+        )
+
+        segments = [
+            YouTubeTranscriptSegment(
+                start_ms=1000,
+                duration_ms=3000,
+                text="First sentence. Second",
+            ),
+            YouTubeTranscriptSegment(
+                start_ms=3000,
+                duration_ms=3000,
+                text="sentence? Third one! Final",
+            ),
+            YouTubeTranscriptSegment(
+                start_ms=5000,
+                duration_ms=2500,
+                text="unfinished thought",
+            ),
+        ]
+
+        original_text = [segment.text for segment in segments]
+
+        units = build_transcript_sentences(segments)
+
+        self.assertEqual(
+            [unit.text for unit in units],
+            [
+                "First sentence.",
+                "Second sentence?",
+                "Third one!",
+                "Final unfinished thought",
+            ],
+        )
+
+        self.assertEqual(
+            (
+                units[0].source_segment_start,
+                units[0].source_start_char,
+                units[0].source_segment_end,
+                units[0].source_end_char,
+            ),
+            (0, 0, 0, 15),
+        )
+
+        self.assertEqual(
+            (
+                units[1].source_segment_start,
+                units[1].source_start_char,
+                units[1].source_segment_end,
+                units[1].source_end_char,
+            ),
+            (0, 16, 1, 9),
+        )
+
+        self.assertEqual(
+            (
+                units[2].source_segment_start,
+                units[2].source_start_char,
+                units[2].source_segment_end,
+                units[2].source_end_char,
+            ),
+            (1, 10, 1, 20),
+        )
+
+        self.assertEqual(
+            (
+                units[3].source_segment_start,
+                units[3].source_start_char,
+                units[3].source_segment_end,
+                units[3].source_end_char,
+            ),
+            (1, 21, 2, len(segments[2].text)),
+        )
+
+        self.assertEqual(
+            [segment.text for segment in segments],
+            original_text,
+        )
+
 if __name__ == "__main__":
     unittest.main()
