@@ -4,9 +4,32 @@ from unittest.mock import MagicMock, patch
 from unittest.mock import MagicMock, patch
 
 from warrigal.acquisition.youtube import discover_channel_videos
+from warrigal.acquisition.youtube import extract_description_urls
 
 
 class YouTubeAcquisitionTests(unittest.TestCase):
+
+    def test_extract_description_urls_preserves_source_order(self):
+        description = """Project notes:
+https://example.com/paper.pdf
+More information: https://example.org/research?id=42
+Support: https://www.patreon.com/example
+"""
+
+        urls = extract_description_urls(description)
+
+        self.assertEqual(
+            urls,
+            [
+                "https://example.com/paper.pdf",
+                "https://example.org/research?id=42",
+                "https://www.patreon.com/example",
+            ],
+        )
+
+        self.assertEqual(extract_description_urls(None), [])
+        self.assertEqual(extract_description_urls("No links here."), [])
+
     @patch("warrigal.acquisition.youtube.yt_dlp.YoutubeDL")
     def test_discover_channel_videos_returns_structured_videos(self, youtube_dl):
         ydl = MagicMock()

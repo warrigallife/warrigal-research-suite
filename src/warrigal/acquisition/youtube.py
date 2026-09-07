@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import re
 
 import yt_dlp
 
@@ -10,6 +11,17 @@ from warrigal.models import Passage
 from warrigal.models import Source
 from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
+
+
+def extract_description_urls(
+    description: str | None,
+) -> list[str]:
+    """Extract explicit HTTP(S) URLs from a YouTube description in source order."""
+
+    if not description:
+        return []
+
+    return re.findall(r"https?://[^\s<>]+", description)
 
 
 @dataclass(frozen=True)
