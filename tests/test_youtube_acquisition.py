@@ -504,7 +504,11 @@ Support: https://www.patreon.com/example
             upload_date="20260906",
             duration=3,
             url="https://www.youtube.com/watch?v=test-video",
-            description="Test description",
+            description=(
+                "Test description\n"
+                "Paper: https://example.com/paper.pdf\n"
+                "Support: https://www.patreon.com/example"
+            ),
         )
 
         with TemporaryDirectory() as temporary_directory:
@@ -573,6 +577,33 @@ Support: https://www.patreon.com/example
             self.assertEqual(
                 object_store.read_bytes(first.sha256),
                 caption_data,
+            )
+
+            source_row = connection.execute(
+                """
+                SELECT metadata_json
+                FROM sources
+                WHERE locator = ?
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (metadata.url,),
+            ).fetchone()
+
+            self.assertIsNotNone(source_row)
+
+            source_metadata = json.loads(source_row["metadata_json"])
+
+            self.assertEqual(
+                source_metadata["description"],
+                metadata.description,
+            )
+            self.assertEqual(
+                source_metadata["description_urls"],
+                [
+                    "https://example.com/paper.pdf",
+                    "https://www.patreon.com/example",
+                ],
             )
 
             passages = [
