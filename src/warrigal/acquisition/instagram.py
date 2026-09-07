@@ -65,3 +65,60 @@ def post_from_instaloader(post: object) -> InstagramPost:
         typename=post.typename,
         caption=post.caption or "",
     )
+
+
+def persist_instagram_post(
+    post: InstagramPost,
+    *,
+    repository,
+    object_store,
+    job_id: str,
+    node_id: str,
+    batch_id: str,
+    collection_id: str | None = None,
+):
+    """Persist a canonical metadata snapshot using shared acquisition."""
+    import json
+    from dataclasses import asdict
+    from warrigal.acquisition.service import AcquisitionService
+    from warrigal.models import Source
+
+    payload = {
+        "schema": "warrigal.instagram.post.v1",
+        "post": {
+            **asdict(post),
+            "date_utc": post.date_utc.isoformat(),
+        },
+    }
+    data = json.dumps(
+        payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+
+    source_record = Source(
+        source_type="instagram_post",
+        locator=post.url,
+        title=post.shortcode,
+        metadata={
+            "shortcode": post.shortcode,
+            "typename": post.typename,
+            "date_utc": post.date_utc.isoformat(),
+            "evidence_kind": "normalized_metadata_snapshot",
+        },
+    )
+    repository.save_source(source_record)
+
+    return AcquisitionService(repository, object_store).acquire_bytes(
+        data=data,
+        source_id=source_record.source_id,
+        job_id=job_id,
+        node_id=node_id,
+        batch_id=batch_id,
+        method="instagram_metadata_snapshot",
+        mime_type="application/json",
+        original_filename=f"{post.shortcode}.json",
+        collection_id=collection_id,
+        metadata={
+            "shortcode": post.shortcode,
+            "evidence_kind": "normalized_metadata_snapshot",
+        },
+    )

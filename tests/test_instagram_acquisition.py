@@ -92,5 +92,125 @@ class InstagramAcquisitionTests(unittest.TestCase):
             discover_profile_posts(object(), max_posts=-1)
 
 
+    def test_instagram_post_persistence(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from warrigal.acquisition.instagram import (
+            InstagramPost,
+            persist_instagram_post,
+        )
+        from warrigal.database import initialize_database
+        from warrigal.models import Batch, Job, Node
+        from warrigal.object_store import ObjectStore
+        from warrigal.repository import WarrigalRepository
+
+        post = InstagramPost(
+            shortcode="TEST123",
+            url="https://www.instagram.com/p/TEST123/",
+            date_utc=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            typename="GraphImage",
+            caption="Ganoderma australe",
+        )
+
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            connection = initialize_database(root / "warrigal.db")
+            repository = WarrigalRepository(connection)
+            object_store = ObjectStore(root / "objects")
+
+            node = Node(name="Instagram Test")
+            repository.save_node(node)
+
+            batch = Batch(
+                node_id=node.node_id,
+                label="Instagram Test Batch",
+            )
+            repository.save_batch(batch)
+
+            job = Job(
+                name="Instagram Test Job",
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+            )
+            repository.save_job(job)
+
+            kwargs = {
+                "repository": repository,
+                "object_store": object_store,
+                "job_id": job.job_id,
+                "node_id": node.node_id,
+                "batch_id": batch.batch_id,
+            }
+
+            first = persist_instagram_post(post, **kwargs)
+            second = persist_instagram_post(post, **kwargs)
+
+            self.assertFalse(first.deduplicated)
+            self.assertTrue(second.deduplicated)
+            self.assertEqual(first.object_id, second.object_id)
+            self.assertEqual(first.sha256, second.sha256)
+            self.assertNotEqual(
+                first.acquisition_id,
+                second.acquisition_id,
+            )
+
+            data = object_store.read_bytes(first.sha256)
+            payload = json.loads(data)
+
+            self.assertEqual(
+                payload["schema"],
+                "warrigal.instagram.post.v1",
+            )
+            self.assertEqual(
+                payload["post"]["caption"],
+                "Ganoderma australe",
+            )
+            self.assertEqual(
+                payload["post"]["date_utc"],
+                "2026-01-02T00:00:00+00:00",
+            )
+
+            source_rows = connection.execute(
+                """
+                SELECT source_id, metadata_json
+                FROM sources
+                WHERE locator = ?
+                """,
+                (post.url,),
+            ).fetchall()
+
+            self.assertEqual(len(source_rows), 2)
+
+            for row in source_rows:
+                metadata = json.loads(row["metadata_json"])
+                self.assertEqual(
+                    metadata["evidence_kind"],
+                    "normalized_metadata_snapshot",
+                )
+
+            acquisition_rows = connection.execute(
+                """
+                SELECT acquisition_id, object_id, source_id
+                FROM acquisitions
+                WHERE object_id = ?
+                """,
+                (first.object_id,),
+            ).fetchall()
+
+            self.assertEqual(len(acquisition_rows), 2)
+            self.assertEqual(
+                {row["acquisition_id"] for row in acquisition_rows},
+                {first.acquisition_id, second.acquisition_id},
+            )
+            self.assertEqual(
+                {row["source_id"] for row in acquisition_rows},
+                {row["source_id"] for row in source_rows},
+            )
+
+            connection.close()
+
+
 if __name__ == "__main__":
     unittest.main()
