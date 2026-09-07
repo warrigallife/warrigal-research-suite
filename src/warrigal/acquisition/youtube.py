@@ -13,15 +13,44 @@ from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
 
 
+@dataclass(frozen=True)
+class YouTubeDescriptionReference:
+    url: str
+    index: int
+    start_char: int
+    end_char: int
+
+
+def extract_description_references(
+    description: str | None,
+) -> list[YouTubeDescriptionReference]:
+    """Extract structured HTTP(S) references from a YouTube description."""
+
+    if not description:
+        return []
+
+    return [
+        YouTubeDescriptionReference(
+            url=match.group(0),
+            index=index,
+            start_char=match.start(),
+            end_char=match.end(),
+        )
+        for index, match in enumerate(
+            re.finditer(r"https?://[^\s<>]+", description)
+        )
+    ]
+
+
 def extract_description_urls(
     description: str | None,
 ) -> list[str]:
     """Extract explicit HTTP(S) URLs from a YouTube description in source order."""
 
-    if not description:
-        return []
-
-    return re.findall(r"https?://[^\s<>]+", description)
+    return [
+        reference.url
+        for reference in extract_description_references(description)
+    ]
 
 
 @dataclass(frozen=True)

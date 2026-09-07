@@ -4,10 +4,41 @@ from unittest.mock import MagicMock, patch
 from unittest.mock import MagicMock, patch
 
 from warrigal.acquisition.youtube import discover_channel_videos
+from warrigal.acquisition.youtube import extract_description_references
 from warrigal.acquisition.youtube import extract_description_urls
 
 
 class YouTubeAcquisitionTests(unittest.TestCase):
+
+    def test_extract_description_references_preserve_positions(self):
+        description = (
+            "Project: https://example.com/model\n"
+            "Paper: https://example.org/paper.pdf"
+        )
+
+        references = extract_description_references(description)
+
+        self.assertEqual(len(references), 2)
+
+        self.assertEqual(references[0].url, "https://example.com/model")
+        self.assertEqual(references[0].index, 0)
+        self.assertEqual(
+            description[
+                references[0].start_char:references[0].end_char
+            ],
+            references[0].url,
+        )
+
+        self.assertEqual(references[1].url, "https://example.org/paper.pdf")
+        self.assertEqual(references[1].index, 1)
+        self.assertEqual(
+            description[
+                references[1].start_char:references[1].end_char
+            ],
+            references[1].url,
+        )
+
+        self.assertEqual(extract_description_references(None), [])
 
     def test_extract_description_urls_preserves_source_order(self):
         description = """Project notes:
