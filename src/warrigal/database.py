@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS passages (
     text TEXT NOT NULL,
     source_url TEXT,
     source_title TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     FOREIGN KEY (object_id) REFERENCES objects(object_id),
     FOREIGN KEY (acquisition_id) REFERENCES acquisitions(acquisition_id),
@@ -154,6 +155,20 @@ def initialize_database(
 
     connection = connect(database_path)
     connection.executescript(SCHEMA)
+
+    passage_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(passages)")
+    }
+
+    if "metadata_json" not in passage_columns:
+        connection.execute(
+            """
+            ALTER TABLE passages
+            ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'
+            """
+        )
+
     connection.commit()
 
     return connection

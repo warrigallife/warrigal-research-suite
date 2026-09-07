@@ -253,9 +253,10 @@ class WarrigalRepository:
                 text,
                 source_url,
                 source_title,
+                metadata_json,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 passage.passage_id,
@@ -265,6 +266,7 @@ class WarrigalRepository:
                 passage.text,
                 passage.source_url,
                 passage.source_title,
+                json.dumps(passage.metadata),
                 passage.created_at.isoformat(),
             ),
         )
@@ -398,6 +400,7 @@ class WarrigalRepository:
                 text,
                 source_url,
                 source_title,
+                metadata_json,
                 created_at
             FROM passages
             ORDER BY created_at ASC, passage_index ASC

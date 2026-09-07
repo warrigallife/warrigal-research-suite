@@ -5,6 +5,8 @@ import json
 
 import yt_dlp
 
+from warrigal.models import Passage
+
 
 @dataclass(frozen=True)
 class YouTubeVideo:
@@ -307,4 +309,34 @@ def build_transcript_sentences(
         )
 
     return units
+
+
+def transcript_units_to_passages(
+    units: list[YouTubeTranscriptUnit],
+    object_id: str,
+    acquisition_id: str,
+    source_url: str,
+    source_title: str | None,
+) -> list[Passage]:
+    """Convert derived YouTube transcript units into searchable passages."""
+
+    return [
+        Passage(
+            object_id=object_id,
+            acquisition_id=acquisition_id,
+            passage_index=index,
+            text=unit.text,
+            source_url=source_url,
+            source_title=source_title,
+            metadata={
+                "start_ms": unit.start_ms,
+                "end_ms": unit.end_ms,
+                "source_segment_start": unit.source_segment_start,
+                "source_start_char": unit.source_start_char,
+                "source_segment_end": unit.source_segment_end,
+                "source_end_char": unit.source_end_char,
+            },
+        )
+        for index, unit in enumerate(units)
+    ]
 

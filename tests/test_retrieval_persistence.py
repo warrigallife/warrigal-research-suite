@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -155,6 +156,169 @@ class RetrievalPersistenceTests(unittest.TestCase):
 
                 self.assertTrue(
                     repository.object_has_passages(obj.object_id)
+                )
+            finally:
+                connection.close()
+
+
+    def test_passage_metadata_survives_persistence(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "warrigal.db"
+            connection = initialize_database(database_path)
+
+            try:
+                repository = WarrigalRepository(connection)
+
+                node = Node(name="metadata-node")
+                repository.save_node(node)
+
+                job = Job(
+                    name="metadata-job",
+                    node_id=node.node_id,
+                )
+                repository.save_job(job)
+
+                source = Source(
+                    source_type="youtube",
+                    locator="https://www.youtube.com/watch?v=test",
+                    final_locator="https://www.youtube.com/watch?v=test",
+                    title="Test Video",
+                )
+                repository.save_source(source)
+
+                obj = Object(
+                    sha256="c" * 64,
+                    size_bytes=789,
+                    mime_type="application/json",
+                    original_filename="test.en-orig.json3",
+                )
+                repository.save_object(obj)
+
+                acquisition = Acquisition(
+                    source_id=source.source_id,
+                    object_id=obj.object_id,
+                    job_id=job.job_id,
+                    node_id=node.node_id,
+                    method="youtube_caption",
+                )
+                repository.save_acquisition(acquisition)
+
+                metadata = {
+                    "start_ms": 1000,
+                    "end_ms": 2500,
+                    "source_segment_start": 0,
+                    "source_start_char": 0,
+                    "source_segment_end": 1,
+                    "source_end_char": 8,
+                }
+
+                passage = Passage(
+                    object_id=obj.object_id,
+                    acquisition_id=acquisition.acquisition_id,
+                    passage_index=0,
+                    text="Transcript evidence.",
+                    source_url=source.final_locator,
+                    source_title=source.title,
+                    metadata=metadata,
+                )
+                repository.save_passage(passage)
+
+                rows = repository.list_passages()
+
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(
+                    rows[0]["metadata_json"],
+                    '{"start_ms": 1000, "end_ms": 2500, '
+                    '"source_segment_start": 0, "source_start_char": 0, '
+                    '"source_segment_end": 1, "source_end_char": 8}',
+                )
+            finally:
+                connection.close()
+
+    def test_initialize_database_migrates_existing_passages_table(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "warrigal.db"
+
+            connection = sqlite3.connect(database_path)
+
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE passages (
+                        passage_id TEXT PRIMARY KEY,
+                        object_id TEXT NOT NULL,
+                        acquisition_id TEXT NOT NULL,
+                        passage_index INTEGER NOT NULL,
+                        text TEXT NOT NULL,
+                        source_url TEXT,
+                        source_title TEXT,
+                        created_at TEXT NOT NULL,
+                        UNIQUE (acquisition_id, passage_index)
+                    )
+                    """
+                )
+
+                connection.execute(
+                    """
+                    INSERT INTO passages (
+                        passage_id,
+                        object_id,
+                        acquisition_id,
+                        passage_index,
+                        text,
+                        source_url,
+                        source_title,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "WRG-PASSAGE-OLD",
+                        "WRG-OBJ-OLD",
+                        "WRG-ACQ-OLD",
+                        0,
+                        "Existing evidence.",
+                        "old-source",
+                        "Old Source",
+                        "2026-01-01T00:00:00+00:00",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            connection = initialize_database(database_path)
+
+            try:
+                columns = {
+                    row["name"]
+                    for row in connection.execute(
+                        "PRAGMA table_info(passages)"
+                    )
+                }
+
+                self.assertIn("metadata_json", columns)
+
+                row = connection.execute(
+                    """
+                    SELECT
+                        passage_id,
+                        text,
+                        metadata_json
+                    FROM passages
+                    WHERE passage_id = ?
+                    """,
+                    ("WRG-PASSAGE-OLD",),
+                ).fetchone()
+
+                self.assertIsNotNone(row)
+                self.assertEqual(
+                    row["text"],
+                    "Existing evidence.",
+                )
+                self.assertEqual(
+                    row["metadata_json"],
+                    "{}",
                 )
             finally:
                 connection.close()

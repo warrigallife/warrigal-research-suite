@@ -274,5 +274,68 @@ class YouTubeAcquisitionTests(unittest.TestCase):
             original_text,
         )
 
+
+    def test_transcript_units_convert_to_passages(self):
+        from warrigal.acquisition.youtube import (
+            YouTubeTranscriptUnit,
+            transcript_units_to_passages,
+        )
+
+        units = [
+            YouTubeTranscriptUnit(
+                start_ms=1000,
+                end_ms=2500,
+                text="First useful sentence.",
+                source_segment_start=0,
+                source_start_char=0,
+                source_segment_end=1,
+                source_end_char=8,
+            ),
+            YouTubeTranscriptUnit(
+                start_ms=2500,
+                end_ms=4000,
+                text="Second useful sentence.",
+                source_segment_start=1,
+                source_start_char=9,
+                source_segment_end=2,
+                source_end_char=12,
+            ),
+        ]
+
+        passages = transcript_units_to_passages(
+            units=units,
+            object_id="WRG-OBJ-TEST",
+            acquisition_id="WRG-ACQ-TEST",
+            source_url="https://www.youtube.com/watch?v=test",
+            source_title="Test Video",
+        )
+
+        self.assertEqual(len(passages), 2)
+
+        self.assertEqual(passages[0].object_id, "WRG-OBJ-TEST")
+        self.assertEqual(passages[0].acquisition_id, "WRG-ACQ-TEST")
+        self.assertEqual(passages[0].passage_index, 0)
+        self.assertEqual(passages[0].text, "First useful sentence.")
+        self.assertEqual(
+            passages[0].source_url,
+            "https://www.youtube.com/watch?v=test",
+        )
+        self.assertEqual(passages[0].source_title, "Test Video")
+        self.assertEqual(
+            passages[0].metadata,
+            {
+                "start_ms": 1000,
+                "end_ms": 2500,
+                "source_segment_start": 0,
+                "source_start_char": 0,
+                "source_segment_end": 1,
+                "source_end_char": 8,
+            },
+        )
+
+        self.assertEqual(passages[1].passage_index, 1)
+        self.assertEqual(passages[1].text, "Second useful sentence.")
+
+
 if __name__ == "__main__":
     unittest.main()

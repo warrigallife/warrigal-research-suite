@@ -122,5 +122,6 @@ class Passage:
     text: str
     source_url: str | None = None
     source_title: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     passage_id: str = field(default_factory=lambda: new_id("PASSAGE"))
     created_at: datetime = field(default_factory=utc_now)
