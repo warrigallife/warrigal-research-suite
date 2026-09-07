@@ -5,7 +5,21 @@ import json
 
 import yt_dlp
 
+from warrigal.acquisition.service import AcquisitionService
 from warrigal.models import Passage
+from warrigal.models import Source
+from warrigal.object_store import ObjectStore
+from warrigal.repository import WarrigalRepository
+
+
+@dataclass(frozen=True)
+class YouTubeIngestionResult:
+    video_id: str
+    object_id: str
+    acquisition_id: str
+    sha256: str
+    passage_count: int
+    deduplicated: bool
 
 
 @dataclass(frozen=True)
@@ -361,6 +375,100 @@ def build_transcript_sentences(
     return units
 
 
+
+
+def ingest_video_transcript(
+    video_url: str,
+    *,
+    repository: WarrigalRepository,
+    object_store: ObjectStore,
+    job_id: str,
+    node_id: str,
+    batch_id: str,
+    collection_id: str | None = None,
+    language: str = "en-orig",
+) -> YouTubeIngestionResult:
+    """Acquire, preserve, derive, and persist a YouTube transcript."""
+
+    metadata = extract_video_metadata(video_url)
+    data = acquire_json3_transcript(
+        metadata.url,
+        language=language,
+    )
+
+    source = Source(
+        source_type="youtube",
+        locator=video_url,
+        final_locator=metadata.url,
+        title=metadata.title,
+        metadata={
+            "video_id": metadata.video_id,
+            "channel": metadata.channel,
+            "channel_id": metadata.channel_id,
+            "upload_date": metadata.upload_date,
+            "duration": metadata.duration,
+            "description": metadata.description,
+            "caption_language": language,
+            "caption_format": "json3",
+        },
+    )
+    repository.save_source(source)
+
+    service = AcquisitionService(
+        repository=repository,
+        object_store=object_store,
+    )
+
+    acquisition = service.acquire_bytes(
+        data=data,
+        source_id=source.source_id,
+        job_id=job_id,
+        node_id=node_id,
+        batch_id=batch_id,
+        method="youtube_caption_json3",
+        mime_type="application/json",
+        original_filename=f"{metadata.video_id}.{language}.json3",
+        collection_id=collection_id,
+        metadata={
+            "video_id": metadata.video_id,
+            "video_url": metadata.url,
+            "caption_language": language,
+            "caption_format": "json3",
+        },
+    )
+
+    if repository.object_has_passages(acquisition.object_id):
+        return YouTubeIngestionResult(
+            video_id=metadata.video_id,
+            object_id=acquisition.object_id,
+            acquisition_id=acquisition.acquisition_id,
+            sha256=acquisition.sha256,
+            passage_count=0,
+            deduplicated=True,
+        )
+
+    segments = parse_json3_transcript(data)
+    units = build_transcript_sentences(segments)
+
+    passages = transcript_units_to_passages(
+        units=units,
+        object_id=acquisition.object_id,
+        acquisition_id=acquisition.acquisition_id,
+        source_url=metadata.url,
+        source_title=metadata.title,
+    )
+
+    for passage in passages:
+        repository.save_passage(passage)
+
+    return YouTubeIngestionResult(
+        video_id=metadata.video_id,
+        object_id=acquisition.object_id,
+        acquisition_id=acquisition.acquisition_id,
+        sha256=acquisition.sha256,
+        passage_count=len(passages),
+        deduplicated=acquisition.deduplicated,
+    )
 
 def build_video_transcript_passages(
     video_url: str,

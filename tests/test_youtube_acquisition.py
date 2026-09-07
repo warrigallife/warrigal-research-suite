@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 from unittest.mock import MagicMock, patch
@@ -448,6 +449,146 @@ class YouTubeAcquisitionTests(unittest.TestCase):
                 "source_end_char": 9,
             },
         )
+
+
+    def test_ingest_video_transcript_persists_raw_evidence_and_passages(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from warrigal.acquisition.youtube import (
+            YouTubeVideoMetadata,
+            ingest_video_transcript,
+        )
+        from warrigal.database import initialize_database
+        from warrigal.models import Batch, Job, Node
+        from warrigal.object_store import ObjectStore
+        from warrigal.repository import WarrigalRepository
+
+        caption_data = (
+            b'{"events":['
+            b'{"tStartMs":1000,"dDurationMs":1000,'
+            b'"segs":[{"utf8":"First sentence. Second"}]},'
+            b'{"tStartMs":2000,"dDurationMs":1000,'
+            b'"segs":[{"utf8":" sentence?"}]}'
+            b']}'
+        )
+
+        metadata = YouTubeVideoMetadata(
+            video_id="test-video",
+            title="Persistent YouTube Test",
+            channel="Test Channel",
+            channel_id="test-channel",
+            upload_date="20260906",
+            duration=3,
+            url="https://www.youtube.com/watch?v=test-video",
+            description="Test description",
+        )
+
+        with TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+
+            connection = initialize_database(
+                temporary_root / "warrigal.db"
+            )
+            repository = WarrigalRepository(connection)
+            object_store = ObjectStore(temporary_root / "objects")
+
+            node = Node(name="YouTube Test")
+            repository.save_node(node)
+
+            batch = Batch(
+                node_id=node.node_id,
+                label="YouTube Test Batch",
+            )
+            repository.save_batch(batch)
+
+            job = Job(
+                name="YouTube Test Job",
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+            )
+            repository.save_job(job)
+
+            with patch(
+                "warrigal.acquisition.youtube.extract_video_metadata",
+                return_value=metadata,
+            ), patch(
+                "warrigal.acquisition.youtube.acquire_json3_transcript",
+                return_value=caption_data,
+            ):
+                first = ingest_video_transcript(
+                    metadata.url,
+                    repository=repository,
+                    object_store=object_store,
+                    job_id=job.job_id,
+                    node_id=node.node_id,
+                    batch_id=batch.batch_id,
+                )
+
+                second = ingest_video_transcript(
+                    metadata.url,
+                    repository=repository,
+                    object_store=object_store,
+                    job_id=job.job_id,
+                    node_id=node.node_id,
+                    batch_id=batch.batch_id,
+                )
+
+            self.assertEqual(first.video_id, "test-video")
+            self.assertEqual(first.passage_count, 2)
+            self.assertFalse(first.deduplicated)
+
+            self.assertEqual(second.object_id, first.object_id)
+            self.assertEqual(second.passage_count, 0)
+            self.assertTrue(second.deduplicated)
+
+            self.assertNotEqual(
+                first.acquisition_id,
+                second.acquisition_id,
+            )
+
+            self.assertEqual(
+                object_store.read_bytes(first.sha256),
+                caption_data,
+            )
+
+            passages = [
+                passage
+                for passage in repository.list_passages()
+                if passage["object_id"] == first.object_id
+            ]
+
+            self.assertEqual(len(passages), 2)
+            self.assertEqual(passages[0]["text"], "First sentence.")
+            self.assertEqual(passages[1]["text"], "Second sentence?")
+
+            self.assertEqual(
+                json.loads(passages[1]["metadata_json"]),
+                {
+                    "start_ms": 1000,
+                    "end_ms": 3000,
+                    "source_segment_start": 0,
+                    "source_start_char": 16,
+                    "source_segment_end": 1,
+                    "source_end_char": 9,
+                },
+            )
+
+            acquisition_count = connection.execute(
+                "SELECT COUNT(*) FROM acquisitions"
+            ).fetchone()[0]
+
+            object_count = connection.execute(
+                "SELECT COUNT(*) FROM objects"
+            ).fetchone()[0]
+
+            passage_count = connection.execute(
+                "SELECT COUNT(*) FROM passages"
+            ).fetchone()[0]
+
+            self.assertEqual(acquisition_count, 2)
+            self.assertEqual(object_count, 1)
+            self.assertEqual(passage_count, 2)
 
 
 if __name__ == "__main__":
