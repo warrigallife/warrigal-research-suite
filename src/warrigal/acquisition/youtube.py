@@ -432,7 +432,13 @@ def ingest_video_transcript(
     """Acquire, preserve, derive, and persist a YouTube transcript."""
 
     metadata = extract_video_metadata(video_url)
-    description_urls = extract_description_urls(metadata.description)
+    description_references = extract_description_references(
+        metadata.description
+    )
+    description_urls = [
+        reference.url
+        for reference in description_references
+    ]
 
     data = acquire_json3_transcript(
         metadata.url,
@@ -452,6 +458,15 @@ def ingest_video_transcript(
             "duration": metadata.duration,
             "description": metadata.description,
             "description_urls": description_urls,
+            "description_references": [
+                {
+                    "url": reference.url,
+                    "index": reference.index,
+                    "start_char": reference.start_char,
+                    "end_char": reference.end_char,
+                }
+                for reference in description_references
+            ],
             "caption_language": language,
             "caption_format": "json3",
         },

@@ -637,6 +637,28 @@ Support: https://www.patreon.com/example
                 ],
             )
 
+            description = metadata.description
+            self.assertIsNotNone(description)
+
+            expected_urls = [
+                "https://example.com/paper.pdf",
+                "https://www.patreon.com/example",
+            ]
+
+            references = source_metadata["description_references"]
+
+            self.assertEqual(len(references), 2)
+
+            for index, reference in enumerate(references):
+                self.assertEqual(reference["index"], index)
+                self.assertEqual(reference["url"], expected_urls[index])
+                self.assertEqual(
+                    description[
+                        reference["start_char"]:reference["end_char"]
+                    ],
+                    reference["url"],
+                )
+
             passages = [
                 passage
                 for passage in repository.list_passages()
