@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from warrigal.acquisition.youtube import discover_channel_videos
 
@@ -335,6 +336,118 @@ class YouTubeAcquisitionTests(unittest.TestCase):
 
         self.assertEqual(passages[1].passage_index, 1)
         self.assertEqual(passages[1].text, "Second useful sentence.")
+
+
+    def test_acquire_json3_transcript_returns_caption_bytes(self):
+        from warrigal.acquisition.youtube import acquire_json3_transcript
+
+        caption_bytes = b'{"events": []}'
+
+        first_ydl = MagicMock()
+        first_ydl.extract_info.return_value = {
+            "automatic_captions": {
+                "en-orig": [
+                    {
+                        "ext": "vtt",
+                        "url": "https://example.test/caption.vtt",
+                    },
+                    {
+                        "ext": "json3",
+                        "url": "https://example.test/caption.json3",
+                    },
+                ]
+            }
+        }
+
+        response = MagicMock()
+        response.read.return_value = caption_bytes
+
+        second_ydl = MagicMock()
+        second_ydl.urlopen.return_value = response
+
+        first_context = MagicMock()
+        first_context.__enter__.return_value = first_ydl
+
+        second_context = MagicMock()
+        second_context.__enter__.return_value = second_ydl
+
+        with patch(
+            "warrigal.acquisition.youtube.yt_dlp.YoutubeDL",
+            side_effect=[first_context, second_context],
+        ):
+            data = acquire_json3_transcript(
+                "https://www.youtube.com/watch?v=test"
+            )
+
+        self.assertEqual(data, caption_bytes)
+        first_ydl.extract_info.assert_called_once_with(
+            "https://www.youtube.com/watch?v=test",
+            download=False,
+        )
+        second_ydl.urlopen.assert_called_once()
+
+
+
+    def test_build_video_transcript_passages_connects_transcript_pipeline(self):
+        from warrigal.acquisition.youtube import build_video_transcript_passages
+
+        caption_data = (
+            b'{"events":['
+            b'{"tStartMs":1000,"dDurationMs":1000,'
+            b'"segs":[{"utf8":"First sentence. Second"}]},'
+            b'{"tStartMs":2000,"dDurationMs":1000,'
+            b'"segs":[{"utf8":" sentence?"}]}'
+            b']}'
+        )
+
+        with patch(
+            "warrigal.acquisition.youtube.acquire_json3_transcript",
+            return_value=caption_data,
+        ) as acquire:
+            passages = build_video_transcript_passages(
+                video_url="https://www.youtube.com/watch?v=test",
+                object_id="WRG-OBJ-PIPELINE",
+                acquisition_id="WRG-ACQ-PIPELINE",
+                source_title="Pipeline Test",
+            )
+
+        acquire.assert_called_once_with(
+            "https://www.youtube.com/watch?v=test",
+            language="en-orig",
+        )
+
+        self.assertEqual(len(passages), 2)
+        self.assertEqual(passages[0].text, "First sentence.")
+        self.assertEqual(passages[1].text, "Second sentence?")
+
+        self.assertEqual(passages[0].object_id, "WRG-OBJ-PIPELINE")
+        self.assertEqual(passages[0].acquisition_id, "WRG-ACQ-PIPELINE")
+        self.assertEqual(passages[0].passage_index, 0)
+        self.assertEqual(passages[1].passage_index, 1)
+
+        self.assertEqual(
+            passages[0].metadata,
+            {
+                "start_ms": 1000,
+                "end_ms": 2000,
+                "source_segment_start": 0,
+                "source_start_char": 0,
+                "source_segment_end": 0,
+                "source_end_char": 15,
+            },
+        )
+
+        self.assertEqual(
+            passages[1].metadata,
+            {
+                "start_ms": 1000,
+                "end_ms": 3000,
+                "source_segment_start": 0,
+                "source_start_char": 16,
+                "source_segment_end": 1,
+                "source_end_char": 9,
+            },
+        )
 
 
 if __name__ == "__main__":

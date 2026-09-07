@@ -132,6 +132,56 @@ def extract_video_metadata(video_url: str) -> YouTubeVideoMetadata:
         ),
     )
 
+
+def acquire_json3_transcript(
+    video_url: str,
+    language: str = "en-orig",
+) -> bytes:
+    """Acquire a public YouTube JSON3 caption track without downloading media."""
+
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": [language],
+        "subtitlesformat": "json3",
+    }
+
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(video_url, download=False)
+
+    subtitles = info.get("subtitles") or {}
+    automatic_captions = info.get("automatic_captions") or {}
+
+    tracks = subtitles.get(language) or automatic_captions.get(language) or []
+
+    json3_track = next(
+        (
+            track
+            for track in tracks
+            if track.get("ext") == "json3" and track.get("url")
+        ),
+        None,
+    )
+
+    if json3_track is None:
+        raise ValueError(
+            f"No JSON3 caption track found for language {language!r}"
+        )
+
+    request = yt_dlp.networking.Request(str(json3_track["url"]))
+
+    with yt_dlp.YoutubeDL(
+        {
+            "quiet": True,
+            "no_warnings": True,
+        }
+    ) as ydl:
+        response = ydl.urlopen(request)
+        return response.read()
+
 def parse_json3_transcript(data: bytes | str) -> list[YouTubeTranscriptSegment]:
     """Parse YouTube JSON3 captions while preserving raw event structure."""
 
@@ -310,6 +360,32 @@ def build_transcript_sentences(
 
     return units
 
+
+
+def build_video_transcript_passages(
+    video_url: str,
+    object_id: str,
+    acquisition_id: str,
+    source_title: str | None,
+    *,
+    language: str = "en-orig",
+) -> list[Passage]:
+    """Acquire and reconstruct a YouTube transcript as Warrigal passages."""
+
+    data = acquire_json3_transcript(
+        video_url,
+        language=language,
+    )
+    segments = parse_json3_transcript(data)
+    units = build_transcript_sentences(segments)
+
+    return transcript_units_to_passages(
+        units=units,
+        object_id=object_id,
+        acquisition_id=acquisition_id,
+        source_url=video_url,
+        source_title=source_title,
+    )
 
 def transcript_units_to_passages(
     units: list[YouTubeTranscriptUnit],
