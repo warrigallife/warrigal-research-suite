@@ -9,6 +9,7 @@ from warrigal.acquisition.content import (
 )
 from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
+from warrigal.acquisition.youtube import ingest_video_transcript
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
 from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
@@ -82,6 +83,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Public HTTP/HTTPS URL to start crawling from.",
     )
 
+
+    youtube_parser = subparsers.add_parser(
+        "ingest-youtube",
+        help="Ingest transcript evidence from a YouTube video.",
+    )
+
+    youtube_parser.add_argument(
+        "url",
+        help="Public YouTube video URL to ingest.",
+    )
 
     archive_parser = subparsers.add_parser(
         "ingest-archive",
@@ -611,6 +622,58 @@ def run_ingest_archive(path: str) -> int:
         db.close()
 
 
+def run_ingest_youtube(url: str) -> int:
+    """Ingest public YouTube transcript evidence into Warrigal."""
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    object_store = ObjectStore()
+
+    node = Node(name="Warrigal YouTube")
+    repository.save_node(node)
+
+    batch = Batch(
+        node_id=node.node_id,
+        label="YouTube transcript ingestion",
+    )
+    repository.save_batch(batch)
+
+    job = Job(
+        name="YouTube transcript ingestion",
+        node_id=node.node_id,
+        batch_id=batch.batch_id,
+    )
+    repository.save_job(job)
+
+    collection = Collection(
+        name="YouTube Acquisitions",
+        description="YouTube evidence preserved by Warrigal.",
+    )
+    repository.save_collection(collection)
+
+    result = ingest_video_transcript(
+        url,
+        repository=repository,
+        object_store=object_store,
+        job_id=job.job_id,
+        node_id=node.node_id,
+        batch_id=batch.batch_id,
+        collection_id=collection.collection_id,
+    )
+
+    print()
+    print("=== WARRIGAL YOUTUBE INGESTION ===")
+    print(f"VIDEO ID:       {result.video_id}")
+    print(f"OBJECT:         {result.object_id}")
+    print(f"ACQUISITION:    {result.acquisition_id}")
+    print(f"SHA256:         {result.sha256}")
+    print(f"PASSAGES:       {result.passage_count}")
+    print(f"DEDUPLICATED:   {result.deduplicated}")
+
+    db.close()
+    return 0
+
+
 def run_search(
     query: str,
     min_query_coverage: float = 0.0,
@@ -672,6 +735,9 @@ def main() -> int:
 
     if args.command == "ingest-archive":
         return run_ingest_archive(args.path)
+
+    if args.command == "ingest-youtube":
+        return run_ingest_youtube(args.url)
 
     if args.command == "history":
         return run_history()
