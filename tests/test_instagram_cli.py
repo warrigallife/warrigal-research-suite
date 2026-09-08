@@ -89,5 +89,38 @@ class InstagramCLITests(unittest.TestCase):
                     max_posts=2,
                 )
 
+    def test_own_profile_uses_authenticated_route(self):
+        from unittest.mock import Mock, patch
+        from warrigal.instagram_cli import run_ingest_instagram_profile
+
+        loader = Mock()
+        loader.test_login.return_value = "australian_native_mushrooms"
+        profile = Mock()
+        profile.username = "australian_native_mushrooms"
+
+        with (
+            patch("instaloader.Instaloader", return_value=loader),
+            patch("instaloader.Profile.own_profile", return_value=profile) as own,
+            patch("instaloader.Profile.from_username") as resolve,
+            patch("warrigal.instagram_cli.initialize_database") as database,
+            patch("warrigal.instagram_cli.WarrigalRepository"),
+            patch("warrigal.instagram_cli.ObjectStore"),
+            patch("warrigal.instagram_cli.Node"),
+            patch("warrigal.instagram_cli.Batch"),
+            patch("warrigal.instagram_cli.Job"),
+            patch("warrigal.instagram_cli.Collection"),
+            patch("warrigal.instagram_cli.ingest_instagram_profile", return_value=[]),
+        ):
+            result = run_ingest_instagram_profile(
+                "australian_native_mushrooms",
+                username="australian_native_mushrooms",
+                max_posts=1,
+            )
+
+        self.assertEqual(result, 0)
+        own.assert_called_once_with(loader.context)
+        resolve.assert_not_called()
+        database.return_value.close.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()

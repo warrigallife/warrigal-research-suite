@@ -128,9 +128,18 @@ def run_ingest_instagram_profile(
         max_connection_attempts=1,
     )
     loader.load_session_from_file(username)
-    profile = instaloader.Profile.from_username(
-        loader.context, profile_username.lstrip("@")
-    )
+    requested_username = profile_username.lstrip("@").lower()
+    authenticated_username = loader.test_login()
+
+    if (
+        authenticated_username is not None
+        and requested_username == authenticated_username.lower()
+    ):
+        profile = instaloader.Profile.own_profile(loader.context)
+    else:
+        profile = instaloader.Profile.from_username(
+            loader.context, requested_username
+        )
 
     db = initialize_database()
     try:
