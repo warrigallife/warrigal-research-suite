@@ -124,6 +124,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-posts", type=int, default=3,
         help="Maximum number of posts to ingest (default: 3).",
     )
+    instagram_profile_parser.add_argument(
+        "--resume", action="store_true",
+        help="Skip posts with completed acquisition checkpoints.",
+    )
 
     archive_parser = subparsers.add_parser(
         "ingest-archive",
@@ -775,6 +779,7 @@ def main() -> int:
             args.profile,
             username=args.username,
             max_posts=args.max_posts,
+            resume=args.resume,
         )
 
     if args.command == "ingest-instagram":

@@ -578,5 +578,119 @@ class InstagramProfileIngestionTests(unittest.TestCase):
                 max_posts=3,
             )
 
+
+
+class InstagramResumeTests(unittest.TestCase):
+    def test_resume_skips_completed_and_retries_failed_posts(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        from warrigal.acquisition.instagram import ingest_instagram_profile
+        from warrigal.acquisition.service import AcquisitionService
+        from warrigal.database import initialize_database
+        from warrigal.models import Batch, Job, Node, Source
+        from warrigal.object_store import ObjectStore
+        from warrigal.repository import WarrigalRepository
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            db = initialize_database(root / "warrigal.db")
+            try:
+                repository = WarrigalRepository(db)
+                store = ObjectStore(root / "objects")
+                node = Node(name="Resume Test")
+                repository.save_node(node)
+                batch = Batch(node_id=node.node_id, label="Resume Batch")
+                repository.save_batch(batch)
+                job = Job(
+                    name="Resume Job",
+                    node_id=node.node_id,
+                    batch_id=batch.batch_id,
+                )
+                repository.save_job(job)
+                source = Source(
+                    source_type="instagram_post",
+                    locator="https://www.instagram.com/p/RESUME/",
+                )
+                repository.save_source(source)
+                service = AcquisitionService(repository, store)
+
+                def acquire(data):
+                    return service.acquire_bytes(
+                        data=data,
+                        source_id=source.source_id,
+                        job_id=job.job_id,
+                        node_id=node.node_id,
+                        batch_id=batch.batch_id,
+                        method="resume_test",
+                    )
+
+                posts = [
+                    SimpleNamespace(shortcode="FIRST"),
+                    SimpleNamespace(shortcode="SECOND"),
+                ]
+                profile = Mock()
+                profile.username = "Example"
+                profile.get_posts.side_effect = lambda: iter(posts)
+
+                calls = []
+                def ingest(post, **kwargs):
+                    calls.append(post.shortcode)
+                    if post.shortcode == "SECOND" and calls.count("SECOND") == 1:
+                        raise RuntimeError("Controlled failure")
+                    return {
+                        "post": post,
+                        "snapshot": acquire(b"snapshot-" + post.shortcode.encode()),
+                        "evidence": [acquire(b"evidence-" + post.shortcode.encode())],
+                    }
+
+                kwargs = dict(
+                    downloader=None,
+                    repository=repository,
+                    object_store=store,
+                    job_id=job.job_id,
+                    node_id=node.node_id,
+                    batch_id=batch.batch_id,
+                    max_posts=2,
+                )
+
+                with patch(
+                    "warrigal.acquisition.instagram.ingest_instagram_post",
+                    side_effect=ingest,
+                ):
+                    first = ingest_instagram_profile(profile, **kwargs)
+                    self.assertEqual(first.succeeded, 1)
+                    self.assertEqual(first.failed, 1)
+
+                    original = repository.get_instagram_post_checkpoint(
+                        "example", "FIRST"
+                    )
+                    self.assertIsNotNone(original)
+
+                    second = ingest_instagram_profile(
+                        profile, resume=True, **kwargs
+                    )
+                    self.assertEqual(second.skipped, 1)
+                    self.assertEqual(second.attempted, 1)
+                    self.assertEqual(second.succeeded, 1)
+                    self.assertEqual(second.failed, 0)
+                    self.assertEqual(calls, ["FIRST", "SECOND", "SECOND"])
+
+                    third = ingest_instagram_profile(profile, **kwargs)
+                    self.assertEqual(third.succeeded, 2)
+                    self.assertEqual(third.skipped, 0)
+
+                preserved = repository.get_instagram_post_checkpoint(
+                    "example", "FIRST"
+                )
+                self.assertEqual(
+                    preserved["snapshot_acquisition_id"],
+                    original["snapshot_acquisition_id"],
+                )
+            finally:
+                db.close()
+
 if __name__ == "__main__":
     unittest.main()

@@ -87,6 +87,7 @@ class InstagramCLITests(unittest.TestCase):
                     "australian_native_mushrooms",
                     username="australian_native_mushrooms",
                     max_posts=2,
+            resume=False,
                 )
 
     def test_own_profile_uses_authenticated_route(self):

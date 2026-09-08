@@ -234,21 +234,36 @@ class InstagramProfileIngestionResult(list):
         return len(self.failures)
 
 
+
 def ingest_instagram_profile(
     profile, *, downloader, repository, object_store,
     job_id: str, node_id: str, batch_id: str,
     collection_id: str | None = None, max_posts: int = 3,
+    resume: bool = False,
 ):
     if max_posts < 0:
         raise ValueError("max_posts must be non-negative")
 
     results = InstagramProfileIngestionResult()
+    results.skipped = 0
     if max_posts == 0:
         return results
+
+    profile_username = profile.username.lower()
 
     for index, raw_post in enumerate(profile.get_posts()):
         if index >= max_posts:
             break
+
+        shortcode = getattr(raw_post, "shortcode", None)
+
+        if resume and shortcode:
+            checkpoint = repository.get_instagram_post_checkpoint(
+                profile_username, shortcode, 1
+            )
+            if checkpoint is not None:
+                results.skipped += 1
+                continue
 
         results.attempted += 1
         try:
@@ -262,8 +277,25 @@ def ingest_instagram_profile(
                 batch_id=batch_id,
                 collection_id=collection_id,
             )
+
+            if shortcode and repository is not None:
+                snapshot = result.get("snapshot") if isinstance(result, dict) else None
+                evidence = result.get("evidence") if isinstance(result, dict) else None
+                if snapshot is not None and evidence is not None:
+                    existing = repository.get_instagram_post_checkpoint(
+                        profile_username, shortcode, 1
+                    )
+                    if existing is None:
+                        repository.save_instagram_post_checkpoint(
+                            profile_username=profile_username,
+                            shortcode=shortcode,
+                            contract_version=1,
+                            snapshot_acquisition_id=snapshot.acquisition_id,
+                            evidence_acquisition_ids=[
+                                item.acquisition_id for item in evidence
+                            ],
+                        )
         except Exception as exc:
-            shortcode = getattr(raw_post, "shortcode", None)
             results.failures.append({
                 "shortcode": shortcode,
                 "source_url": (

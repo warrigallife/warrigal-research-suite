@@ -103,7 +103,8 @@ def run_ingest_instagram(value: str, *, username: str) -> int:
 
 
 def run_ingest_instagram_profile(
-    profile_username: str, *, username: str, max_posts: int = 3
+    profile_username: str, *, username: str, max_posts: int = 3,
+    resume: bool = False,
 ) -> int:
     """Ingest a bounded number of posts using an existing saved session."""
     import instaloader
@@ -173,12 +174,15 @@ def run_ingest_instagram_profile(
             batch_id=batch.batch_id,
             collection_id=collection.collection_id,
             max_posts=max_posts,
+            resume=resume,
         )
 
         print()
         print("=== WARRIGAL INSTAGRAM PROFILE INGESTION ===")
         print(f"PROFILE:        {profile.username}")
         print(f"POSTS INGESTED: {len(results)}")
+        if resume:
+            print(f"POSTS SKIPPED:  {getattr(results, 'skipped', 0)}")
         if hasattr(results, "attempted"):
             print(f"POSTS ATTEMPTED: {results.attempted}")
             print(f"POSTS SUCCEEDED: {results.succeeded}")
