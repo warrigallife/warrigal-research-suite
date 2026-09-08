@@ -163,3 +163,53 @@ def persist_instagram_post(
             repository.save_passage(passage)
 
     return acquisition
+
+
+def persist_instagram_evidence_file(
+    path,
+    *,
+    source_url: str,
+    evidence_kind: str,
+    repository,
+    object_store,
+    job_id: str,
+    node_id: str,
+    batch_id: str,
+    collection_id: str | None = None,
+):
+    """Preserve exact exported evidence bytes through shared acquisition."""
+    import mimetypes
+    from pathlib import Path
+    from warrigal.acquisition.service import AcquisitionService
+    from warrigal.models import Source
+
+    evidence_path = Path(path)
+    data = evidence_path.read_bytes()
+    mime_type, _ = mimetypes.guess_type(evidence_path.name)
+
+    source_record = Source(
+        source_type="instagram",
+        locator=source_url,
+        title=evidence_path.name,
+        metadata={
+            "evidence_kind": evidence_kind,
+            "original_filename": evidence_path.name,
+        },
+    )
+    repository.save_source(source_record)
+
+    return AcquisitionService(repository, object_store).acquire_bytes(
+        data=data,
+        source_id=source_record.source_id,
+        job_id=job_id,
+        node_id=node_id,
+        batch_id=batch_id,
+        method="instagram_evidence_file",
+        mime_type=mime_type or "application/octet-stream",
+        original_filename=evidence_path.name,
+        collection_id=collection_id,
+        metadata={
+            "evidence_kind": evidence_kind,
+            "source_url": source_url,
+        },
+    )

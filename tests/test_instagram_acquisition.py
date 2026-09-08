@@ -297,5 +297,82 @@ class InstagramAcquisitionTests(unittest.TestCase):
         )
 
 
+    def test_instagram_evidence_file_persistence(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from warrigal.acquisition.instagram import (
+            persist_instagram_evidence_file,
+        )
+        from warrigal.database import initialize_database
+        from warrigal.models import Batch, Job, Node
+        from warrigal.object_store import ObjectStore
+        from warrigal.repository import WarrigalRepository
+
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            connection = initialize_database(root / "warrigal.db")
+            repository = WarrigalRepository(connection)
+            object_store = ObjectStore(root / "objects")
+
+            node = Node(name="Instagram Evidence Test")
+            repository.save_node(node)
+            batch = Batch(
+                node_id=node.node_id,
+                label="Instagram Evidence Batch",
+            )
+            repository.save_batch(batch)
+            job = Job(
+                name="Instagram Evidence Job",
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+            )
+            repository.save_job(job)
+
+            evidence = root / "TEST123.json"
+            original = b'{"raw":"preserved exactly"}'
+            evidence.write_bytes(original)
+
+            kwargs = {
+                "source_url": "https://www.instagram.com/p/TEST123/",
+                "evidence_kind": "instaloader_metadata",
+                "repository": repository,
+                "object_store": object_store,
+                "job_id": job.job_id,
+                "node_id": node.node_id,
+                "batch_id": batch.batch_id,
+            }
+
+            first = persist_instagram_evidence_file(evidence, **kwargs)
+            second = persist_instagram_evidence_file(evidence, **kwargs)
+
+            self.assertEqual(
+                object_store.read_bytes(first.sha256),
+                original,
+            )
+            self.assertEqual(first.object_id, second.object_id)
+            self.assertFalse(first.deduplicated)
+            self.assertTrue(second.deduplicated)
+            self.assertNotEqual(
+                first.acquisition_id,
+                second.acquisition_id,
+            )
+
+            media = root / "TEST123.jpg"
+            media_bytes = b"synthetic-image-bytes"
+            media.write_bytes(media_bytes)
+
+            media_result = persist_instagram_evidence_file(
+                media,
+                **{**kwargs, "evidence_kind": "instagram_media"},
+            )
+            self.assertEqual(
+                object_store.read_bytes(media_result.sha256),
+                media_bytes,
+            )
+
+            connection.close()
+
+
 if __name__ == "__main__":
     unittest.main()
