@@ -385,8 +385,10 @@ class InstagramAcquisitionTests(unittest.TestCase):
         from warrigal.repository import WarrigalRepository
 
         class ControlledDownloader:
+            dirname_pattern = "{target}"
+
             def download_post(self, post, target):
-                root = Path(target)
+                root = Path(self.dirname_pattern.format(target=target))
                 root.mkdir(parents=True)
                 (root / "post.json").write_bytes(b'{"original":true}')
                 (root / "post.jpg").write_bytes(b"synthetic-image-bytes")

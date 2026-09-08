@@ -242,8 +242,16 @@ def ingest_instagram_post(
 
     with TemporaryDirectory(prefix="warrigal-instagram-") as temporary:
         root = Path(temporary)
-        target = str(root / "post")
-        downloader.download_post(raw_post, target=target)
+        target = "post"
+        original_dirname_pattern = getattr(downloader, "dirname_pattern", None)
+        if original_dirname_pattern is not None:
+            downloader.dirname_pattern = str(root / "{target}")
+
+        try:
+            downloader.download_post(raw_post, target=target)
+        finally:
+            if original_dirname_pattern is not None:
+                downloader.dirname_pattern = original_dirname_pattern
 
         files = sorted(path for path in root.rglob("*") if path.is_file())
         if not files:
