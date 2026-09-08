@@ -10,6 +10,7 @@ from warrigal.acquisition.content import (
 from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.acquisition.youtube import ingest_video_transcript
+from warrigal.instagram_cli import run_ingest_instagram
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
 from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
@@ -92,6 +93,20 @@ def build_parser() -> argparse.ArgumentParser:
     youtube_parser.add_argument(
         "url",
         help="Public YouTube video URL to ingest.",
+    )
+
+    instagram_parser = subparsers.add_parser(
+        "ingest-instagram",
+        help="Ingest one Instagram post using a saved session.",
+    )
+    instagram_parser.add_argument(
+        "post",
+        help="Instagram shortcode or post/reel URL.",
+    )
+    instagram_parser.add_argument(
+        "--username",
+        required=True,
+        help="Username of the existing saved Instaloader session.",
     )
 
     archive_parser = subparsers.add_parser(
@@ -738,6 +753,9 @@ def main() -> int:
 
     if args.command == "ingest-youtube":
         return run_ingest_youtube(args.url)
+
+    if args.command == "ingest-instagram":
+        return run_ingest_instagram(args.post, username=args.username)
 
     if args.command == "history":
         return run_history()
