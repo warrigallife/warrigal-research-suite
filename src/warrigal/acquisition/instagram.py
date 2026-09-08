@@ -215,6 +215,46 @@ def persist_instagram_evidence_file(
     )
 
 
+
+def ingest_instagram_profile(
+    profile,
+    *,
+    downloader,
+    repository,
+    object_store,
+    job_id: str,
+    node_id: str,
+    batch_id: str,
+    collection_id: str | None = None,
+    max_posts: int = 3,
+):
+    """Ingest a bounded number of posts from an already-resolved profile."""
+    if max_posts < 0:
+        raise ValueError("max_posts must be non-negative")
+
+    results = []
+    if max_posts == 0:
+        return results
+
+    for index, raw_post in enumerate(profile.get_posts()):
+        if index >= max_posts:
+            break
+
+        results.append(
+            ingest_instagram_post(
+                raw_post,
+                downloader=downloader,
+                repository=repository,
+                object_store=object_store,
+                job_id=job_id,
+                node_id=node_id,
+                batch_id=batch_id,
+                collection_id=collection_id,
+            )
+        )
+
+    return results
+
 def ingest_instagram_post(
     raw_post,
     *,

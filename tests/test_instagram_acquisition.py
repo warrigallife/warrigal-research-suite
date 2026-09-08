@@ -448,5 +448,68 @@ class InstagramAcquisitionTests(unittest.TestCase):
             connection.close()
 
 
+
+class InstagramProfileIngestionTests(unittest.TestCase):
+    def test_zero_limit_does_not_discover_posts(self):
+        from unittest.mock import Mock
+        from warrigal.acquisition.instagram import ingest_instagram_profile
+
+        profile = Mock()
+        result = ingest_instagram_profile(
+            profile,
+            downloader=None,
+            repository=None,
+            object_store=None,
+            job_id="JOB",
+            node_id="NODE",
+            batch_id="BATCH",
+            max_posts=0,
+        )
+        self.assertEqual(result, [])
+        profile.get_posts.assert_not_called()
+
+    def test_negative_limit_is_rejected(self):
+        from unittest.mock import Mock
+        from warrigal.acquisition.instagram import ingest_instagram_profile
+
+        with self.assertRaises(ValueError):
+            ingest_instagram_profile(
+                Mock(),
+                downloader=None,
+                repository=None,
+                object_store=None,
+                job_id="JOB",
+                node_id="NODE",
+                batch_id="BATCH",
+                max_posts=-1,
+            )
+
+    def test_bounded_profile_ingestion_reuses_post_workflow(self):
+        from unittest.mock import Mock, patch
+        from warrigal.acquisition.instagram import ingest_instagram_profile
+
+        posts = [object() for _ in range(5)]
+        profile = Mock()
+        profile.get_posts.return_value = iter(posts)
+
+        with patch(
+            "warrigal.acquisition.instagram.ingest_instagram_post",
+            side_effect=lambda post, **kwargs: {"raw_post": post},
+        ) as ingest:
+            results = ingest_instagram_profile(
+                profile,
+                downloader=None,
+                repository=None,
+                object_store=None,
+                job_id="JOB",
+                node_id="NODE",
+                batch_id="BATCH",
+                max_posts=2,
+            )
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual([r["raw_post"] for r in results], posts[:2])
+        self.assertEqual(ingest.call_count, 2)
+
 if __name__ == "__main__":
     unittest.main()
