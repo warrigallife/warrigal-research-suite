@@ -10,7 +10,7 @@ from warrigal.acquisition.content import (
 from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.acquisition.youtube import ingest_video_transcript
-from warrigal.instagram_cli import run_ingest_instagram
+from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_profile
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
 from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
@@ -107,6 +107,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--username",
         required=True,
         help="Username of the existing saved Instaloader session.",
+    )
+
+    instagram_profile_parser = subparsers.add_parser(
+        "ingest-instagram-profile",
+        help="Ingest a bounded number of posts from an Instagram profile.",
+    )
+    instagram_profile_parser.add_argument(
+        "profile", help="Instagram profile username.",
+    )
+    instagram_profile_parser.add_argument(
+        "--username", required=True,
+        help="Username of the existing saved Instaloader session.",
+    )
+    instagram_profile_parser.add_argument(
+        "--max-posts", type=int, default=3,
+        help="Maximum number of posts to ingest (default: 3).",
     )
 
     archive_parser = subparsers.add_parser(
@@ -753,6 +769,13 @@ def main() -> int:
 
     if args.command == "ingest-youtube":
         return run_ingest_youtube(args.url)
+
+    if args.command == "ingest-instagram-profile":
+        return run_ingest_instagram_profile(
+            args.profile,
+            username=args.username,
+            max_posts=args.max_posts,
+        )
 
     if args.command == "ingest-instagram":
         return run_ingest_instagram(args.post, username=args.username)

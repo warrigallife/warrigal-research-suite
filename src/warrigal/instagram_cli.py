@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-from warrigal.acquisition.instagram import ingest_instagram_post
+from warrigal.acquisition.instagram import ingest_instagram_post, ingest_instagram_profile
 from warrigal.database import initialize_database
 from warrigal.models import Batch, Collection, Job, Node
 from warrigal.object_store import ObjectStore
@@ -97,6 +97,83 @@ def run_ingest_instagram(value: str, *, username: str) -> int:
         for evidence in result["evidence"]:
             print(f"  OBJECT: {evidence.object_id}")
             print(f"  SHA256: {evidence.sha256}")
+        return 0
+    finally:
+        db.close()
+
+
+def run_ingest_instagram_profile(
+    profile_username: str, *, username: str, max_posts: int = 3
+) -> int:
+    """Ingest a bounded number of posts using an existing saved session."""
+    import instaloader
+
+    if max_posts < 0:
+        raise ValueError("max_posts must be non-negative")
+    if max_posts == 0:
+        print("No posts requested.")
+        return 0
+
+    loader = instaloader.Instaloader(
+        dirname_pattern="{target}",
+        filename_pattern="{shortcode}",
+        download_pictures=True,
+        download_videos=True,
+        download_video_thumbnails=False,
+        download_geotags=False,
+        download_comments=False,
+        save_metadata=True,
+        compress_json=False,
+        post_metadata_txt_pattern="",
+        max_connection_attempts=1,
+    )
+    loader.load_session_from_file(username)
+    profile = instaloader.Profile.from_username(
+        loader.context, profile_username.lstrip("@")
+    )
+
+    db = initialize_database()
+    try:
+        repository = WarrigalRepository(db)
+        object_store = ObjectStore()
+        node = Node(name="Warrigal Instagram")
+        repository.save_node(node)
+        batch = Batch(
+            node_id=node.node_id, label="Instagram profile ingestion"
+        )
+        repository.save_batch(batch)
+        job = Job(
+            name="Instagram profile ingestion",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+        collection = Collection(
+            name="Instagram Acquisitions",
+            description="Instagram evidence preserved by Warrigal.",
+        )
+        repository.save_collection(collection)
+
+        results = ingest_instagram_profile(
+            profile,
+            downloader=loader,
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+            max_posts=max_posts,
+        )
+
+        print()
+        print("=== WARRIGAL INSTAGRAM PROFILE INGESTION ===")
+        print(f"PROFILE:        {profile.username}")
+        print(f"POSTS INGESTED: {len(results)}")
+        for result in results:
+            print(f"  POST: {result['post'].url}")
+            print(f"  SNAPSHOT: {result['snapshot'].object_id}")
+            print(f"  EVIDENCE FILES: {len(result['evidence'])}")
         return 0
     finally:
         db.close()

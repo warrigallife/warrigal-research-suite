@@ -55,5 +55,39 @@ class InstagramCLITests(unittest.TestCase):
                 )
 
 
+    def test_profile_parser_accepts_limit(self):
+        from warrigal.cli import build_parser
+
+        args = build_parser().parse_args([
+            "ingest-instagram-profile",
+            "australian_native_mushrooms",
+            "--username", "australian_native_mushrooms",
+            "--max-posts", "2",
+        ])
+        self.assertEqual(args.command, "ingest-instagram-profile")
+        self.assertEqual(args.profile, "australian_native_mushrooms")
+        self.assertEqual(args.max_posts, 2)
+
+    def test_profile_dispatch_calls_runner(self):
+        import sys
+        from unittest.mock import patch
+        from warrigal.cli import main
+
+        with patch.object(sys, "argv", [
+            "warrigal", "ingest-instagram-profile",
+            "australian_native_mushrooms",
+            "--username", "australian_native_mushrooms",
+            "--max-posts", "2",
+        ]):
+            with patch(
+                "warrigal.cli.run_ingest_instagram_profile", return_value=0
+            ) as runner:
+                self.assertEqual(main(), 0)
+                runner.assert_called_once_with(
+                    "australian_native_mushrooms",
+                    username="australian_native_mushrooms",
+                    max_posts=2,
+                )
+
 if __name__ == "__main__":
     unittest.main()
