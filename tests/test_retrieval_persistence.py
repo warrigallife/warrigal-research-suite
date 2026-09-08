@@ -324,5 +324,111 @@ class RetrievalPersistenceTests(unittest.TestCase):
                 connection.close()
 
 
+
+
+class InstagramCheckpointPersistenceTests(unittest.TestCase):
+    def test_checkpoint_persists_and_rejects_replacement(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from warrigal.acquisition.service import AcquisitionService
+        from warrigal.database import initialize_database
+        from warrigal.models import Batch, Job, Node
+        from warrigal.object_store import ObjectStore
+        from warrigal.repository import WarrigalRepository
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            db = initialize_database(root / "warrigal.db")
+            try:
+                repository = WarrigalRepository(db)
+                store = ObjectStore(root / "objects")
+                node = Node(name="Checkpoint Test")
+                repository.save_node(node)
+                batch = Batch(node_id=node.node_id, label="Checkpoint Batch")
+                repository.save_batch(batch)
+                job = Job(
+                    name="Checkpoint Job",
+                    node_id=node.node_id,
+                    batch_id=batch.batch_id,
+                )
+                repository.save_job(job)
+                service = AcquisitionService(repository, store)
+
+                def acquire(data):
+                    return service.acquire_bytes(
+                        data=data,
+                        source_id=source.source_id,
+                        job_id=job.job_id,
+                        node_id=node.node_id,
+                        batch_id=batch.batch_id,
+                        method="checkpoint_test",
+                    )
+
+                from warrigal.models import Source
+                source = Source(
+                    source_type="instagram_post",
+                    locator="https://www.instagram.com/p/TEST123/",
+                )
+                repository.save_source(source)
+
+                snapshot = acquire(b"snapshot")
+                evidence = acquire(b"evidence")
+
+                self.assertIsNone(
+                    repository.get_instagram_post_checkpoint(
+                        "Example", "TEST123"
+                    )
+                )
+
+                kwargs = dict(
+                    profile_username="Example",
+                    shortcode="TEST123",
+                    snapshot_acquisition_id=snapshot.acquisition_id,
+                    evidence_acquisition_ids=[evidence.acquisition_id],
+                )
+                repository.save_instagram_post_checkpoint(**kwargs)
+                repository.save_instagram_post_checkpoint(**kwargs)
+
+                row = repository.get_instagram_post_checkpoint(
+                    "example", "TEST123"
+                )
+                self.assertEqual(row["contract_version"], 1)
+                self.assertEqual(
+                    row["snapshot_acquisition_id"],
+                    snapshot.acquisition_id,
+                )
+                self.assertEqual(
+                    json.loads(row["evidence_acquisition_ids_json"]),
+                    [evidence.acquisition_id],
+                )
+
+                with self.assertRaisesRegex(ValueError, "Unknown"):
+                    repository.save_instagram_post_checkpoint(
+                        **{**kwargs, "evidence_acquisition_ids": ["MISSING"]}
+                    )
+
+                replacement = acquire(b"replacement")
+                with self.assertRaisesRegex(ValueError, "different"):
+                    repository.save_instagram_post_checkpoint(
+                        **{
+                            **kwargs,
+                            "evidence_acquisition_ids": [
+                                replacement.acquisition_id
+                            ],
+                        }
+                    )
+
+                preserved = repository.get_instagram_post_checkpoint(
+                    "example", "TEST123"
+                )
+                self.assertEqual(
+                    preserved["snapshot_acquisition_id"],
+                    snapshot.acquisition_id,
+                )
+            finally:
+                db.close()
+
 if __name__ == "__main__":
     unittest.main()

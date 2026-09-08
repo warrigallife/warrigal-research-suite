@@ -133,6 +133,21 @@ ON acquisitions(source_id);
 
 CREATE INDEX IF NOT EXISTS idx_acquisitions_job
 ON acquisitions(job_id);
+
+CREATE TABLE IF NOT EXISTS instagram_post_checkpoints (
+    profile_username TEXT NOT NULL,
+    shortcode TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    snapshot_acquisition_id TEXT NOT NULL,
+    evidence_acquisition_ids_json TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    PRIMARY KEY (profile_username, shortcode, contract_version),
+    FOREIGN KEY (snapshot_acquisition_id)
+        REFERENCES acquisitions(acquisition_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_instagram_checkpoints_profile
+ON instagram_post_checkpoints(profile_username);
 """
 
 

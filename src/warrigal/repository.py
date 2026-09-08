@@ -406,3 +406,98 @@ class WarrigalRepository:
             ORDER BY created_at ASC, passage_index ASC
             """
         ).fetchall()
+
+
+    def get_instagram_post_checkpoint(
+        self,
+        profile_username: str,
+        shortcode: str,
+        contract_version: int = 1,
+    ) -> sqlite3.Row | None:
+        """Return a completed Instagram post checkpoint."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM instagram_post_checkpoints
+            WHERE profile_username = ?
+              AND shortcode = ?
+              AND contract_version = ?
+            """,
+            (profile_username.lower(), shortcode, contract_version),
+        ).fetchone()
+
+    def save_instagram_post_checkpoint(
+        self,
+        *,
+        profile_username: str,
+        shortcode: str,
+        snapshot_acquisition_id: str,
+        evidence_acquisition_ids: list[str],
+        contract_version: int = 1,
+    ) -> None:
+        """Record completion without replacing existing evidence."""
+
+        if not profile_username or not shortcode:
+            raise ValueError("Profile username and shortcode are required.")
+        if contract_version < 1:
+            raise ValueError("Contract version must be positive.")
+        if not evidence_acquisition_ids:
+            raise ValueError("At least one evidence acquisition is required.")
+
+        acquisition_ids = [
+            snapshot_acquisition_id,
+            *evidence_acquisition_ids,
+        ]
+        if len(acquisition_ids) != len(set(acquisition_ids)):
+            raise ValueError("Checkpoint acquisition IDs must be unique.")
+
+        for acquisition_id in acquisition_ids:
+            row = self.connection.execute(
+                "SELECT 1 FROM acquisitions WHERE acquisition_id = ?",
+                (acquisition_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(
+                    f"Unknown checkpoint acquisition: {acquisition_id}"
+                )
+
+        username = profile_username.lower()
+        existing = self.get_instagram_post_checkpoint(
+            username, shortcode, contract_version
+        )
+        evidence_json = json.dumps(evidence_acquisition_ids)
+
+        if existing is not None:
+            if (
+                existing["snapshot_acquisition_id"] == snapshot_acquisition_id
+                and existing["evidence_acquisition_ids_json"] == evidence_json
+            ):
+                return
+            raise ValueError(
+                "Checkpoint already exists with different acquisition evidence."
+            )
+
+        completed_at = datetime.now(timezone.utc).isoformat()
+        self.connection.execute(
+            """
+            INSERT INTO instagram_post_checkpoints (
+                profile_username,
+                shortcode,
+                contract_version,
+                snapshot_acquisition_id,
+                evidence_acquisition_ids_json,
+                completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                username,
+                shortcode,
+                contract_version,
+                snapshot_acquisition_id,
+                evidence_json,
+                completed_at,
+            ),
+        )
+        self.connection.commit()
