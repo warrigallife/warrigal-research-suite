@@ -181,8 +181,15 @@ def run_ingest_instagram_profile(
         print(f"POSTS INGESTED: {len(results)}")
         for result in results:
             print(f"  POST: {result['post'].url}")
-            print(f"  SNAPSHOT: {result['snapshot'].object_id}")
-            print(f"  EVIDENCE FILES: {len(result['evidence'])}")
+            print(f"  SNAPSHOT OBJECT:      {result['snapshot'].object_id}")
+            print(f"  SNAPSHOT ACQUISITION: {result['snapshot'].acquisition_id}")
+            print(f"  SNAPSHOT DEDUP:       {result['snapshot'].deduplicated}")
+            print(f"  EVIDENCE FILES:       {len(result['evidence'])}")
+
+            for evidence in result["evidence"]:
+                print(f"    EVIDENCE OBJECT:      {evidence.object_id}")
+                print(f"    EVIDENCE ACQUISITION: {evidence.acquisition_id}")
+                print(f"    EVIDENCE DEDUP:       {evidence.deduplicated}")
         return 0
     finally:
         db.close()

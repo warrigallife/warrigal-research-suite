@@ -122,5 +122,63 @@ class InstagramCLITests(unittest.TestCase):
         resolve.assert_not_called()
         database.return_value.close.assert_called_once()
 
+    def test_profile_reports_acquisition_provenance(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from warrigal.instagram_cli import run_ingest_instagram_profile
+
+        loader = Mock()
+        loader.test_login.return_value = "australian_native_mushrooms"
+        profile = Mock()
+        profile.username = "australian_native_mushrooms"
+
+        snapshot = SimpleNamespace(
+            object_id="WRG-OBJ-SNAPSHOT",
+            acquisition_id="WRG-ACQ-SNAPSHOT",
+            deduplicated=True,
+        )
+        evidence = SimpleNamespace(
+            object_id="WRG-OBJ-EVIDENCE",
+            acquisition_id="WRG-ACQ-EVIDENCE",
+            deduplicated=False,
+        )
+        results = [{
+            "post": SimpleNamespace(url="https://www.instagram.com/p/TEST123/"),
+            "snapshot": snapshot,
+            "evidence": [evidence],
+        }]
+
+        output = StringIO()
+        with (
+            patch("instaloader.Instaloader", return_value=loader),
+            patch("instaloader.Profile.own_profile", return_value=profile),
+            patch("warrigal.instagram_cli.initialize_database") as database,
+            patch("warrigal.instagram_cli.WarrigalRepository"),
+            patch("warrigal.instagram_cli.ObjectStore"),
+            patch("warrigal.instagram_cli.Node"),
+            patch("warrigal.instagram_cli.Batch"),
+            patch("warrigal.instagram_cli.Job"),
+            patch("warrigal.instagram_cli.Collection"),
+            patch("warrigal.instagram_cli.ingest_instagram_profile", return_value=results),
+            redirect_stdout(output),
+        ):
+            result = run_ingest_instagram_profile(
+                "australian_native_mushrooms",
+                username="australian_native_mushrooms",
+                max_posts=1,
+            )
+
+        text = output.getvalue()
+        self.assertEqual(result, 0)
+        self.assertIn("WRG-OBJ-SNAPSHOT", text)
+        self.assertIn("WRG-ACQ-SNAPSHOT", text)
+        self.assertIn("WRG-OBJ-EVIDENCE", text)
+        self.assertIn("WRG-ACQ-EVIDENCE", text)
+        self.assertIn("SNAPSHOT DEDUP:       True", text)
+        self.assertIn("EVIDENCE DEDUP:       False", text)
+        database.return_value.close.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()
