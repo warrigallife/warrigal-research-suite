@@ -216,23 +216,33 @@ def persist_instagram_evidence_file(
 
 
 
+
+class InstagramProfileIngestionResult(list):
+    """Successful post results with explicit per-post failures."""
+
+    def __init__(self):
+        super().__init__()
+        self.failures = []
+        self.attempted = 0
+
+    @property
+    def succeeded(self):
+        return len(self)
+
+    @property
+    def failed(self):
+        return len(self.failures)
+
+
 def ingest_instagram_profile(
-    profile,
-    *,
-    downloader,
-    repository,
-    object_store,
-    job_id: str,
-    node_id: str,
-    batch_id: str,
-    collection_id: str | None = None,
-    max_posts: int = 3,
+    profile, *, downloader, repository, object_store,
+    job_id: str, node_id: str, batch_id: str,
+    collection_id: str | None = None, max_posts: int = 3,
 ):
-    """Ingest a bounded number of posts from an already-resolved profile."""
     if max_posts < 0:
         raise ValueError("max_posts must be non-negative")
 
-    results = []
+    results = InstagramProfileIngestionResult()
     if max_posts == 0:
         return results
 
@@ -240,8 +250,9 @@ def ingest_instagram_profile(
         if index >= max_posts:
             break
 
-        results.append(
-            ingest_instagram_post(
+        results.attempted += 1
+        try:
+            result = ingest_instagram_post(
                 raw_post,
                 downloader=downloader,
                 repository=repository,
@@ -251,7 +262,20 @@ def ingest_instagram_profile(
                 batch_id=batch_id,
                 collection_id=collection_id,
             )
-        )
+        except Exception as exc:
+            shortcode = getattr(raw_post, "shortcode", None)
+            results.failures.append({
+                "shortcode": shortcode,
+                "source_url": (
+                    f"https://www.instagram.com/p/{shortcode}/"
+                    if shortcode else None
+                ),
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            })
+            continue
+
+        results.append(result)
 
     return results
 

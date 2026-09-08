@@ -180,5 +180,55 @@ class InstagramCLITests(unittest.TestCase):
         self.assertIn("EVIDENCE DEDUP:       False", text)
         database.return_value.close.assert_called_once()
 
+    def test_profile_reports_partial_failures(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import Mock, patch
+        from warrigal.acquisition.instagram import InstagramProfileIngestionResult
+        from warrigal.instagram_cli import run_ingest_instagram_profile
+
+        loader = Mock()
+        loader.test_login.return_value = "australian_native_mushrooms"
+        profile = Mock()
+        profile.username = "australian_native_mushrooms"
+
+        results = InstagramProfileIngestionResult()
+        results.attempted = 1
+        results.failures.append({
+            "shortcode": "FAILED123",
+            "source_url": "https://www.instagram.com/p/FAILED123/",
+            "error_type": "RuntimeError",
+            "message": "Controlled export failure",
+        })
+
+        output = StringIO()
+        with (
+            patch("instaloader.Instaloader", return_value=loader),
+            patch("instaloader.Profile.own_profile", return_value=profile),
+            patch("warrigal.instagram_cli.initialize_database") as database,
+            patch("warrigal.instagram_cli.WarrigalRepository"),
+            patch("warrigal.instagram_cli.ObjectStore"),
+            patch("warrigal.instagram_cli.Node"),
+            patch("warrigal.instagram_cli.Batch"),
+            patch("warrigal.instagram_cli.Job"),
+            patch("warrigal.instagram_cli.Collection"),
+            patch("warrigal.instagram_cli.ingest_instagram_profile", return_value=results),
+            redirect_stdout(output),
+        ):
+            result = run_ingest_instagram_profile(
+                "australian_native_mushrooms",
+                username="australian_native_mushrooms",
+                max_posts=1,
+            )
+
+        text = output.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("POSTS ATTEMPTED: 1", text)
+        self.assertIn("POSTS SUCCEEDED: 0", text)
+        self.assertIn("POSTS FAILED:    1", text)
+        self.assertIn("https://www.instagram.com/p/FAILED123/", text)
+        self.assertIn("RuntimeError: Controlled export failure", text)
+        database.return_value.close.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()

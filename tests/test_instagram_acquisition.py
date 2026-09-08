@@ -511,5 +511,72 @@ class InstagramProfileIngestionTests(unittest.TestCase):
         self.assertEqual([r["raw_post"] for r in results], posts[:2])
         self.assertEqual(ingest.call_count, 2)
 
+    def test_profile_continues_after_post_failure(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from warrigal.acquisition.instagram import ingest_instagram_profile
+
+        posts = [
+            SimpleNamespace(shortcode="FIRST"),
+            SimpleNamespace(shortcode="SECOND"),
+            SimpleNamespace(shortcode="THIRD"),
+        ]
+        profile = Mock()
+        profile.get_posts.return_value = iter(posts)
+
+        def ingest(post, **kwargs):
+            if post.shortcode == "SECOND":
+                raise RuntimeError("Controlled export failure")
+            return {"raw_post": post}
+
+        with patch(
+            "warrigal.acquisition.instagram.ingest_instagram_post",
+            side_effect=ingest,
+        ) as mocked:
+            results = ingest_instagram_profile(
+                profile,
+                downloader=None,
+                repository=None,
+                object_store=None,
+                job_id="JOB",
+                node_id="NODE",
+                batch_id="BATCH",
+                max_posts=3,
+            )
+
+        self.assertEqual(results.attempted, 3)
+        self.assertEqual(results.succeeded, 2)
+        self.assertEqual(results.failed, 1)
+        self.assertEqual(
+            [r["raw_post"].shortcode for r in results],
+            ["FIRST", "THIRD"],
+        )
+        self.assertEqual(mocked.call_count, 3)
+        self.assertEqual(results.failures[0]["shortcode"], "SECOND")
+        self.assertEqual(results.failures[0]["error_type"], "RuntimeError")
+        self.assertEqual(
+            results.failures[0]["message"],
+            "Controlled export failure",
+        )
+
+    def test_profile_discovery_failure_is_not_silenced(self):
+        from unittest.mock import Mock
+        from warrigal.acquisition.instagram import ingest_instagram_profile
+
+        profile = Mock()
+        profile.get_posts.side_effect = RuntimeError("Discovery unavailable")
+
+        with self.assertRaisesRegex(RuntimeError, "Discovery unavailable"):
+            ingest_instagram_profile(
+                profile,
+                downloader=None,
+                repository=None,
+                object_store=None,
+                job_id="JOB",
+                node_id="NODE",
+                batch_id="BATCH",
+                max_posts=3,
+            )
+
 if __name__ == "__main__":
     unittest.main()

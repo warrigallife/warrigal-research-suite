@@ -179,6 +179,10 @@ def run_ingest_instagram_profile(
         print("=== WARRIGAL INSTAGRAM PROFILE INGESTION ===")
         print(f"PROFILE:        {profile.username}")
         print(f"POSTS INGESTED: {len(results)}")
+        if hasattr(results, "attempted"):
+            print(f"POSTS ATTEMPTED: {results.attempted}")
+            print(f"POSTS SUCCEEDED: {results.succeeded}")
+            print(f"POSTS FAILED:    {results.failed}")
         for result in results:
             print(f"  POST: {result['post'].url}")
             print(f"  SNAPSHOT OBJECT:      {result['snapshot'].object_id}")
@@ -190,6 +194,13 @@ def run_ingest_instagram_profile(
                 print(f"    EVIDENCE OBJECT:      {evidence.object_id}")
                 print(f"    EVIDENCE ACQUISITION: {evidence.acquisition_id}")
                 print(f"    EVIDENCE DEDUP:       {evidence.deduplicated}")
-        return 0
+        if hasattr(results, "failures") and results.failures:
+            print()
+            print("=== INSTAGRAM POST FAILURES ===")
+            for failure in results.failures:
+                print(f"  POST: {failure['source_url'] or failure['shortcode'] or 'unknown'}")
+                print(f"  ERROR: {failure['error_type']}: {failure['message']}")
+
+        return 1 if getattr(results, "failed", 0) else 0
     finally:
         db.close()
