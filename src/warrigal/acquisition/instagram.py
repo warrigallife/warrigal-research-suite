@@ -67,6 +67,37 @@ def post_from_instaloader(post: object) -> InstagramPost:
     )
 
 
+
+def instagram_caption_to_passages(
+    post: InstagramPost,
+    *,
+    object_id: str,
+    acquisition_id: str,
+):
+    """Create a searchable passage preserving the caption's source range."""
+    from warrigal.models import Passage
+
+    if not post.caption.strip():
+        return []
+
+    return [
+        Passage(
+            object_id=object_id,
+            acquisition_id=acquisition_id,
+            passage_index=0,
+            text=post.caption,
+            source_url=post.url,
+            source_title=post.shortcode,
+            metadata={
+                "shortcode": post.shortcode,
+                "source_field": "post.caption",
+                "source_start_char": 0,
+                "source_end_char": len(post.caption),
+                "evidence_kind": "normalized_metadata_snapshot",
+            },
+        )
+    ]
+
 def persist_instagram_post(
     post: InstagramPost,
     *,
@@ -107,7 +138,7 @@ def persist_instagram_post(
     )
     repository.save_source(source_record)
 
-    return AcquisitionService(repository, object_store).acquire_bytes(
+    acquisition = AcquisitionService(repository, object_store).acquire_bytes(
         data=data,
         source_id=source_record.source_id,
         job_id=job_id,
@@ -122,3 +153,13 @@ def persist_instagram_post(
             "evidence_kind": "normalized_metadata_snapshot",
         },
     )
+
+    if not repository.object_has_passages(acquisition.object_id):
+        for passage in instagram_caption_to_passages(
+            post,
+            object_id=acquisition.object_id,
+            acquisition_id=acquisition.acquisition_id,
+        ):
+            repository.save_passage(passage)
+
+    return acquisition

@@ -209,7 +209,92 @@ class InstagramAcquisitionTests(unittest.TestCase):
                 {row["source_id"] for row in source_rows},
             )
 
+            passage_rows = connection.execute(
+                """
+                SELECT object_id, acquisition_id, text, metadata_json
+                FROM passages
+                WHERE object_id = ?
+                """,
+                (first.object_id,),
+            ).fetchall()
+
+            self.assertEqual(len(passage_rows), 1)
+            passage = passage_rows[0]
+            self.assertEqual(passage["text"], post.caption)
+            self.assertEqual(
+                passage["acquisition_id"],
+                first.acquisition_id,
+            )
+
+            passage_metadata = json.loads(passage["metadata_json"])
+            self.assertEqual(
+                passage_metadata["source_start_char"], 0
+            )
+            self.assertEqual(
+                passage_metadata["source_end_char"], len(post.caption)
+            )
+
             connection.close()
+
+
+    def test_instagram_caption_passages(self):
+        from warrigal.acquisition.instagram import (
+            InstagramPost,
+            instagram_caption_to_passages,
+        )
+
+        caption = "  Ganoderma australe\\nNative fungi research.  "
+        post = InstagramPost(
+            shortcode="CAPTION123",
+            url="https://www.instagram.com/p/CAPTION123/",
+            date_utc=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            typename="GraphImage",
+            caption=caption,
+        )
+
+        passages = instagram_caption_to_passages(
+            post,
+            object_id="WRG-OBJ-TEST",
+            acquisition_id="WRG-ACQ-TEST",
+        )
+
+        self.assertEqual(len(passages), 1)
+        passage = passages[0]
+        self.assertEqual(passage.text, caption)
+        self.assertEqual(passage.source_url, post.url)
+        self.assertEqual(passage.metadata["source_field"], "post.caption")
+        self.assertEqual(passage.metadata["source_start_char"], 0)
+        self.assertEqual(passage.metadata["source_end_char"], len(caption))
+        self.assertEqual(
+            caption[
+                passage.metadata["source_start_char"]:
+                passage.metadata["source_end_char"]
+            ],
+            passage.text,
+        )
+
+    def test_blank_instagram_caption_produces_no_passages(self):
+        from warrigal.acquisition.instagram import (
+            InstagramPost,
+            instagram_caption_to_passages,
+        )
+
+        post = InstagramPost(
+            shortcode="BLANK123",
+            url="https://www.instagram.com/p/BLANK123/",
+            date_utc=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            typename="GraphImage",
+            caption="  \n  ",
+        )
+
+        self.assertEqual(
+            instagram_caption_to_passages(
+                post,
+                object_id="WRG-OBJ-TEST",
+                acquisition_id="WRG-ACQ-TEST",
+            ),
+            [],
+        )
 
 
 if __name__ == "__main__":
