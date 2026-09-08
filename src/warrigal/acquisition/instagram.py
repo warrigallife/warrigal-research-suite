@@ -213,3 +213,65 @@ def persist_instagram_evidence_file(
             "source_url": source_url,
         },
     )
+
+
+def ingest_instagram_post(
+    raw_post,
+    *,
+    downloader,
+    repository,
+    object_store,
+    job_id: str,
+    node_id: str,
+    batch_id: str,
+    collection_id: str | None = None,
+):
+    """Export one resolved post and preserve its evidence and searchable caption."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    post = post_from_instaloader(raw_post)
+    kwargs = {
+        "repository": repository,
+        "object_store": object_store,
+        "job_id": job_id,
+        "node_id": node_id,
+        "batch_id": batch_id,
+        "collection_id": collection_id,
+    }
+
+    with TemporaryDirectory(prefix="warrigal-instagram-") as temporary:
+        root = Path(temporary)
+        target = str(root / "post")
+        downloader.download_post(raw_post, target=target)
+
+        files = sorted(path for path in root.rglob("*") if path.is_file())
+        if not files:
+            raise RuntimeError("Instagram export produced no evidence files.")
+
+        evidence = []
+        for path in files:
+            name = path.name.lower()
+            if name.endswith((".json", ".json.xz")):
+                kind = "instaloader_metadata"
+            elif name.endswith((".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov")):
+                kind = "instagram_media"
+            else:
+                kind = "instaloader_export"
+
+            evidence.append(
+                persist_instagram_evidence_file(
+                    path,
+                    source_url=post.url,
+                    evidence_kind=kind,
+                    **kwargs,
+                )
+            )
+
+        snapshot = persist_instagram_post(post, **kwargs)
+
+    return {
+        "post": post,
+        "snapshot": snapshot,
+        "evidence": evidence,
+    }

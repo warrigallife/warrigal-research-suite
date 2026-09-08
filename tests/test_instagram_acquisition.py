@@ -374,5 +374,77 @@ class InstagramAcquisitionTests(unittest.TestCase):
             connection.close()
 
 
+    def test_instagram_post_workflow(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from warrigal.acquisition.instagram import ingest_instagram_post
+        from warrigal.database import initialize_database
+        from warrigal.models import Batch, Job, Node
+        from warrigal.object_store import ObjectStore
+        from warrigal.repository import WarrigalRepository
+
+        class ControlledDownloader:
+            def download_post(self, post, target):
+                root = Path(target)
+                root.mkdir(parents=True)
+                (root / "post.json").write_bytes(b'{"original":true}')
+                (root / "post.jpg").write_bytes(b"synthetic-image-bytes")
+                return True
+
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            connection = initialize_database(root / "warrigal.db")
+            repository = WarrigalRepository(connection)
+            object_store = ObjectStore(root / "objects")
+
+            node = Node(name="Instagram Workflow Test")
+            repository.save_node(node)
+            batch = Batch(node_id=node.node_id, label="Instagram Workflow Batch")
+            repository.save_batch(batch)
+            job = Job(
+                name="Instagram Workflow Job",
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+            )
+            repository.save_job(job)
+
+            raw_post = SimpleNamespace(
+                shortcode="WORKFLOW123",
+                date_utc=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                typename="GraphImage",
+                caption="Ganoderma australe research",
+            )
+
+            result = ingest_instagram_post(
+                raw_post,
+                downloader=ControlledDownloader(),
+                repository=repository,
+                object_store=object_store,
+                job_id=job.job_id,
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+            )
+
+            self.assertEqual(len(result["evidence"]), 2)
+            self.assertEqual(
+                result["post"].caption,
+                "Ganoderma australe research",
+            )
+            self.assertEqual(
+                object_store.read_bytes(result["evidence"][0].sha256),
+                b"synthetic-image-bytes",
+            )
+            self.assertEqual(
+                object_store.read_bytes(result["evidence"][1].sha256),
+                b'{"original":true}',
+            )
+            self.assertTrue(
+                repository.object_has_passages(result["snapshot"].object_id)
+            )
+
+            connection.close()
+
+
 if __name__ == "__main__":
     unittest.main()
