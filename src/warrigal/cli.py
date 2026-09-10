@@ -10,6 +10,7 @@ from warrigal.acquisition.content import (
 from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.audio_cli import run_ingest_audio
+from warrigal.video_cli import run_ingest_video
 from warrigal.acquisition.youtube import ingest_video_transcript
 from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_profile
 from warrigal.acquisition.web import WebFetcher
@@ -146,6 +147,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     audio_parser.add_argument("path", help="Path to a local audio file.")
     audio_parser.add_argument(
+        "--model",
+        required=True,
+        help="Path to a local whisper.cpp model.",
+    )
+
+    video_parser = subparsers.add_parser(
+        "ingest-video",
+        help="Archive and transcribe a local video file.",
+    )
+    video_parser.add_argument("path", help="Path to a local video file.")
+    video_parser.add_argument(
         "--model",
         required=True,
         help="Path to a local whisper.cpp model.",
@@ -776,6 +788,9 @@ def main() -> int:
 
     if args.command == "acquire":
         return run_acquire(args.url)
+
+    if args.command == "ingest-video":
+        return run_ingest_video(args.path, model_path=args.model)
 
     if args.command == "ingest-audio":
         return run_ingest_audio(args.path, model_path=args.model)
