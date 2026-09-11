@@ -148,6 +148,28 @@ CREATE TABLE IF NOT EXISTS instagram_post_checkpoints (
 
 CREATE INDEX IF NOT EXISTS idx_instagram_checkpoints_profile
 ON instagram_post_checkpoints(profile_username);
+
+CREATE TABLE IF NOT EXISTS visual_observations (
+    observation_id TEXT PRIMARY KEY,
+    frame_object_id TEXT NOT NULL,
+    frame_acquisition_id TEXT NOT NULL,
+    timestamp_ms INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    analyser TEXT NOT NULL,
+    analyser_version TEXT,
+    status TEXT NOT NULL,
+    confidence REAL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (frame_object_id) REFERENCES objects(object_id),
+    FOREIGN KEY (frame_acquisition_id) REFERENCES acquisitions(acquisition_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_visual_observations_frame
+ON visual_observations(frame_object_id);
+
+CREATE INDEX IF NOT EXISTS idx_visual_observations_acquisition
+ON visual_observations(frame_acquisition_id);
 """
 
 

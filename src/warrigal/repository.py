@@ -272,6 +272,58 @@ class WarrigalRepository:
         )
         self.connection.commit()
 
+    def save_visual_observation(self, observation) -> None:
+        """Persist a derived visual observation."""
+
+        self.connection.execute(
+            """
+            INSERT INTO visual_observations (
+                observation_id,
+                frame_object_id,
+                frame_acquisition_id,
+                timestamp_ms,
+                text,
+                analyser,
+                analyser_version,
+                status,
+                confidence,
+                metadata_json,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                observation.observation_id,
+                observation.frame_object_id,
+                observation.frame_acquisition_id,
+                observation.timestamp_ms,
+                observation.text,
+                observation.analyser,
+                observation.analyser_version,
+                observation.status,
+                observation.confidence,
+                json.dumps(observation.metadata),
+                observation.created_at.isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def get_visual_observations_for_frame(
+        self,
+        frame_object_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return derived observations for one archived frame."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM visual_observations
+            WHERE frame_object_id = ?
+            ORDER BY created_at
+            """,
+            (frame_object_id,),
+        ).fetchall()
+
     def save_storage_location(self, storage: StorageLocation) -> None:
         """Record where an object's bytes are stored."""
 

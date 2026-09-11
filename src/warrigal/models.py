@@ -125,3 +125,19 @@ class Passage:
     metadata: dict[str, Any] = field(default_factory=dict)
     passage_id: str = field(default_factory=lambda: new_id("PASSAGE"))
     created_at: datetime = field(default_factory=utc_now)
+
+@dataclass
+class VisualObservation:
+    """A derived visual claim about an archived frame."""
+
+    frame_object_id: str
+    frame_acquisition_id: str
+    timestamp_ms: int
+    text: str
+    analyser: str
+    analyser_version: str | None = None
+    status: str = "derived"
+    confidence: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    observation_id: str = field(default_factory=lambda: new_id("OBS"))
+    created_at: datetime = field(default_factory=utc_now)
