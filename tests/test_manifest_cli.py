@@ -16,6 +16,8 @@ class ManifestCLIParserTests(unittest.TestCase):
                 "workspace/example.checkpoint.json",
                 "--max-resources",
                 "1",
+                "--max-resource-bytes",
+                "1000000",
             ]
         )
 
@@ -26,6 +28,7 @@ class ManifestCLIParserTests(unittest.TestCase):
             "workspace/example.checkpoint.json",
         )
         self.assertEqual(args.max_resources, 1)
+        self.assertEqual(args.max_resource_bytes, 1_000_000)
 
     def test_manifest_campaign_requires_checkpoint(self):
         parser = build_parser()
@@ -75,6 +78,8 @@ class ManifestCLIDispatchTests(unittest.TestCase):
                 "workspace/example.checkpoint.json",
                 "--max-resources",
                 "1",
+                "--max-resource-bytes",
+                "1000000",
             ],
         ):
             run_acquire_manifest.return_value = 0
@@ -85,6 +90,7 @@ class ManifestCLIDispatchTests(unittest.TestCase):
             "manifests/example.json",
             checkpoint_path="workspace/example.checkpoint.json",
             max_resources=1,
+            max_resource_bytes=1_000_000,
         )
 
 

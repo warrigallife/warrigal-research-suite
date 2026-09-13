@@ -218,6 +218,15 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Maximum number of non-verified manifest resources to select.",
     )
+    manifest_parser.add_argument(
+        "--max-resource-bytes",
+        type=int,
+        default=None,
+        help=(
+            "Maximum expected size in bytes for any selected resource. "
+            "Unknown-size and oversized resources are skipped."
+        ),
+    )
 
     return parser
 
@@ -817,6 +826,7 @@ def run_acquire_manifest(
     *,
     checkpoint_path: str,
     max_resources: int,
+    max_resource_bytes: int | None = None,
 ) -> int:
     """Acquire a bounded collection manifest into Warrigal."""
 
@@ -836,6 +846,9 @@ def run_acquire_manifest(
 
     if max_resources < 1:
         raise ValueError("--max-resources must be at least 1")
+
+    if max_resource_bytes is not None and max_resource_bytes < 0:
+        raise ValueError("--max-resource-bytes must be non-negative")
 
     db = initialize_database()
     repository = WarrigalRepository(db)
@@ -894,6 +907,7 @@ def run_acquire_manifest(
             zip_handler=zip_handler,
             checkpoint_path=checkpoint_file,
             max_resources=max_resources,
+            max_resource_bytes=max_resource_bytes,
         )
 
         print("=== WARRIGAL MANIFEST CAMPAIGN ===")
@@ -901,6 +915,7 @@ def run_acquire_manifest(
         print(f"COLLECTION:         {collection.collection_id}")
         print(f"CHECKPOINT:         {checkpoint_file}")
         print(f"RESOURCE LIMIT:     {max_resources}")
+        print(f"RESOURCE BYTE LIMIT:{max_resource_bytes!s:>11}")
         print(f"SELECTED RESOURCES: {result.selected_resources}")
 
         for item in result.run_result.items:
@@ -926,6 +941,7 @@ def main() -> int:
             args.manifest,
             checkpoint_path=args.checkpoint,
             max_resources=args.max_resources,
+            max_resource_bytes=args.max_resource_bytes,
         )
 
     if args.command == "acquire":
