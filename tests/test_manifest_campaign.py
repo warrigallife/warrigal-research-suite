@@ -162,5 +162,76 @@ class ManifestCampaignTests(unittest.TestCase):
             self.assertEqual(calls, [])
 
 
+    def test_resource_size_ceiling_skips_oversized_resource(self):
+        manifest = make_manifest()
+        manifest.resources[1].expected_size_bytes = 100
+        manifest.resources[2].expected_size_bytes = 10_000
+        manifest.resources[3].expected_size_bytes = 200
+
+        calls = []
+
+        result = run_manifest_campaign(
+            manifest,
+            pdf_handler=lambda resource: (
+                calls.append(resource.url) or {"stored": True}
+            ),
+            zip_handler=lambda resource: (
+                calls.append(resource.url) or {"stored": True}
+            ),
+            max_resources=2,
+            max_resource_bytes=500,
+        )
+
+        self.assertEqual(
+            calls,
+            [
+                "https://example.test/one.pdf",
+                "https://example.test/three.pdf",
+            ],
+        )
+        self.assertEqual(result.selected_resources, 2)
+
+    def test_unknown_size_is_not_selected_under_size_ceiling(self):
+        manifest = make_manifest()
+        manifest.resources[1].expected_size_bytes = None
+        manifest.resources[2].expected_size_bytes = 100
+        manifest.resources[3].expected_size_bytes = 200
+
+        calls = []
+
+        run_manifest_campaign(
+            manifest,
+            pdf_handler=lambda resource: (
+                calls.append(resource.url) or {"stored": True}
+            ),
+            zip_handler=lambda resource: (
+                calls.append(resource.url) or {"stored": True}
+            ),
+            max_resources=2,
+            max_resource_bytes=500,
+        )
+
+        self.assertEqual(
+            calls,
+            [
+                "https://example.test/two.zip",
+                "https://example.test/three.pdf",
+            ],
+        )
+
+    def test_invalid_resource_size_ceiling_is_rejected(self):
+        calls = []
+
+        with self.assertRaises(ValueError):
+            run_manifest_campaign(
+                make_manifest(),
+                pdf_handler=lambda resource: calls.append(resource.url),
+                max_resources=1,
+                max_resource_bytes=-1,
+            )
+
+        self.assertEqual(calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

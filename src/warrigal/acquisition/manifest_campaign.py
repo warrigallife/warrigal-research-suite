@@ -27,18 +27,26 @@ def _select_campaign_manifest(
     manifest: CollectionManifest,
     *,
     max_resources: int | None,
+    max_resource_bytes: int | None = None,
 ) -> CollectionManifest:
     """
     Build an in-memory campaign view without modifying the source manifest.
 
     Verified resources remain present so the runner can report them normally.
-    The limit applies only to non-verified resources eligible for work.
+    The resource limit applies only to non-verified resources eligible for work.
+
+    When max_resource_bytes is set, resources with an unknown expected size or
+    a size above the ceiling are not selected and do not consume the resource
+    limit.
     """
 
     if max_resources is not None and max_resources < 1:
         raise ValueError("max_resources must be at least 1")
 
-    if max_resources is None:
+    if max_resource_bytes is not None and max_resource_bytes < 0:
+        raise ValueError("max_resource_bytes must be non-negative")
+
+    if max_resources is None and max_resource_bytes is None:
         return manifest
 
     selected = []
@@ -49,9 +57,17 @@ def _select_campaign_manifest(
             selected.append(resource)
             continue
 
-        if eligible < max_resources:
-            selected.append(resource)
-            eligible += 1
+        if max_resource_bytes is not None:
+            if resource.expected_size_bytes is None:
+                continue
+            if resource.expected_size_bytes > max_resource_bytes:
+                continue
+
+        if max_resources is not None and eligible >= max_resources:
+            continue
+
+        selected.append(resource)
+        eligible += 1
 
     return CollectionManifest(
         manifest_id=manifest.manifest_id,
@@ -71,6 +87,7 @@ def run_manifest_campaign(
     zip_handler: ResourceHandler | None = None,
     checkpoint_path: Path | None = None,
     max_resources: int | None = None,
+    max_resource_bytes: int | None = None,
 ) -> ManifestCampaignResult:
     """Run a bounded acquisition campaign over an immutable manifest."""
 
@@ -79,6 +96,7 @@ def run_manifest_campaign(
     campaign_manifest = _select_campaign_manifest(
         manifest,
         max_resources=max_resources,
+        max_resource_bytes=max_resource_bytes,
     )
 
     run_result = run_collection_manifest(
