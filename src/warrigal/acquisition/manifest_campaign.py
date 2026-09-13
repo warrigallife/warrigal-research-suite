@@ -1,0 +1,102 @@
+"""Bounded orchestration for Warrigal collection manifests."""
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+from warrigal.acquisition.manifest import CollectionManifest
+from warrigal.acquisition.manifest_runner import (
+    ManifestRunItem,
+    ManifestRunResult,
+    ResourceHandler,
+    run_collection_manifest,
+)
+
+
+@dataclass(frozen=True)
+class ManifestCampaignResult:
+    """Result of one bounded manifest campaign invocation."""
+
+    manifest_id: str
+    attempted_limit: int | None
+    selected_resources: int
+    run_result: ManifestRunResult
+
+
+def _select_campaign_manifest(
+    manifest: CollectionManifest,
+    *,
+    max_resources: int | None,
+) -> CollectionManifest:
+    """
+    Build an in-memory campaign view without modifying the source manifest.
+
+    Verified resources remain present so the runner can report them normally.
+    The limit applies only to non-verified resources eligible for work.
+    """
+
+    if max_resources is not None and max_resources < 1:
+        raise ValueError("max_resources must be at least 1")
+
+    if max_resources is None:
+        return manifest
+
+    selected = []
+    eligible = 0
+
+    for resource in manifest.resources:
+        if resource.status == "verified":
+            selected.append(resource)
+            continue
+
+        if eligible < max_resources:
+            selected.append(resource)
+            eligible += 1
+
+    return CollectionManifest(
+        manifest_id=manifest.manifest_id,
+        name=manifest.name,
+        description=manifest.description,
+        discovery_provenance=dict(manifest.discovery_provenance),
+        resources=tuple(selected),
+        leads=manifest.leads,
+        metadata=dict(manifest.metadata),
+    )
+
+
+def run_manifest_campaign(
+    manifest: CollectionManifest,
+    *,
+    pdf_handler: ResourceHandler | None = None,
+    zip_handler: ResourceHandler | None = None,
+    checkpoint_path: Path | None = None,
+    max_resources: int | None = None,
+) -> ManifestCampaignResult:
+    """Run a bounded acquisition campaign over an immutable manifest."""
+
+    manifest.validate()
+
+    campaign_manifest = _select_campaign_manifest(
+        manifest,
+        max_resources=max_resources,
+    )
+
+    run_result = run_collection_manifest(
+        campaign_manifest,
+        pdf_handler=pdf_handler,
+        zip_handler=zip_handler,
+        checkpoint_path=checkpoint_path,
+    )
+
+    selected_resources = sum(
+        1
+        for resource in campaign_manifest.resources
+        if resource.status != "verified"
+    )
+
+    return ManifestCampaignResult(
+        manifest_id=manifest.manifest_id,
+        attempted_limit=max_resources,
+        selected_resources=selected_resources,
+        run_result=run_result,
+    )
