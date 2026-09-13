@@ -199,6 +199,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of ranked results to return.",
     )
 
+    manifest_parser = subparsers.add_parser(
+        "acquire-manifest",
+        help="Acquire a bounded number of resources from a collection manifest.",
+    )
+    manifest_parser.add_argument(
+        "manifest",
+        help="Path to a Warrigal collection manifest JSON file.",
+    )
+    manifest_parser.add_argument(
+        "--checkpoint",
+        required=True,
+        help="Path to the persistent campaign checkpoint JSON file.",
+    )
+    manifest_parser.add_argument(
+        "--max-resources",
+        type=int,
+        required=True,
+        help="Maximum number of non-verified manifest resources to select.",
+    )
+
     return parser
 
 def run_acquire(url: str) -> int:
@@ -792,11 +812,121 @@ def run_search(
     return 0
 
 
+def run_acquire_manifest(
+    manifest_path: str,
+    *,
+    checkpoint_path: str,
+    max_resources: int,
+) -> int:
+    """Acquire a bounded collection manifest into Warrigal."""
+
+    from warrigal.acquisition.manifest import CollectionManifest
+    from warrigal.acquisition.manifest_adapters import (
+        make_pdf_manifest_handler,
+        make_web_archive_manifest_handler,
+    )
+    from warrigal.acquisition.manifest_campaign import run_manifest_campaign
+
+    manifest_file = Path(manifest_path).expanduser().resolve()
+    checkpoint_file = Path(checkpoint_path).expanduser().resolve()
+
+    manifest = CollectionManifest.from_json(
+        manifest_file.read_text(encoding="utf-8")
+    )
+
+    if max_resources < 1:
+        raise ValueError("--max-resources must be at least 1")
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+
+    try:
+        node = Node(name="Warrigal CLI")
+        repository.save_node(node)
+
+        batch = Batch(
+            node_id=node.node_id,
+            label=f"Manifest campaign: {manifest.name}",
+        )
+        repository.save_batch(batch)
+
+        job = Job(
+            name=f"Manifest acquisition: {manifest.name}",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+
+        collection = Collection(
+            name=manifest.name,
+            description=manifest.description,
+        )
+        repository.save_collection(collection)
+
+        object_store = ObjectStore()
+
+        discovery_metadata = dict(manifest.discovery_provenance)
+        discovery_metadata["manifest_id"] = manifest.manifest_id
+
+        pdf_handler = make_pdf_manifest_handler(
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+            discovery_metadata=discovery_metadata,
+        )
+
+        zip_handler = make_web_archive_manifest_handler(
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+            discovery_metadata=discovery_metadata,
+        )
+
+        result = run_manifest_campaign(
+            manifest,
+            pdf_handler=pdf_handler,
+            zip_handler=zip_handler,
+            checkpoint_path=checkpoint_file,
+            max_resources=max_resources,
+        )
+
+        print("=== WARRIGAL MANIFEST CAMPAIGN ===")
+        print(f"MANIFEST:           {manifest.manifest_id}")
+        print(f"COLLECTION:         {collection.collection_id}")
+        print(f"CHECKPOINT:         {checkpoint_file}")
+        print(f"RESOURCE LIMIT:     {max_resources}")
+        print(f"SELECTED RESOURCES: {result.selected_resources}")
+
+        for item in result.run_result.items:
+            print(
+                f"{item.status:20} "
+                f"{item.action:20} "
+                f"{item.url}"
+            )
+
+        return 1 if result.run_result.count("failed") else 0
+    finally:
+        db.close()
+
+
 def main() -> int:
     """Run the Warrigal command-line interface."""
 
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command == "acquire-manifest":
+        return run_acquire_manifest(
+            args.manifest,
+            checkpoint_path=args.checkpoint,
+            max_resources=args.max_resources,
+        )
 
     if args.command == "acquire":
         return run_acquire(args.url)
