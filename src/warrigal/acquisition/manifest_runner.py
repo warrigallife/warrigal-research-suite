@@ -13,6 +13,13 @@ ResourceHandler = Callable[[ManifestResource], Mapping[str, Any] | None]
 _SUCCESS_STATUSES = {"acquired", "archived"}
 
 
+def is_successful_checkpoint_record(
+    record: Mapping[str, Any] | None,
+) -> bool:
+    """Return whether a checkpoint record represents completed work."""
+    return record is not None and record.get("status") in _SUCCESS_STATUSES
+
+
 @dataclass(frozen=True)
 class ManifestRunItem:
     """Outcome for one bounded manifest resource."""
@@ -143,10 +150,7 @@ def run_collection_manifest(
 
         previous = checkpoint.get(resource.url)
 
-        if (
-            previous is not None
-            and previous.get("status") in _SUCCESS_STATUSES
-        ):
+        if is_successful_checkpoint_record(previous):
             items.append(
                 ManifestRunItem(
                     url=resource.url,

@@ -6,9 +6,11 @@ from typing import Callable
 
 from warrigal.acquisition.manifest import CollectionManifest
 from warrigal.acquisition.manifest_runner import (
+    ManifestCheckpointStore,
     ManifestRunItem,
     ManifestRunResult,
     ResourceHandler,
+    is_successful_checkpoint_record,
     run_collection_manifest,
 )
 
@@ -28,6 +30,7 @@ def _select_campaign_manifest(
     *,
     max_resources: int | None,
     max_resource_bytes: int | None = None,
+    completed_urls: frozenset[str] = frozenset(),
 ) -> CollectionManifest:
     """
     Build an in-memory campaign view without modifying the source manifest.
@@ -38,6 +41,9 @@ def _select_campaign_manifest(
     When max_resource_bytes is set, resources with an unknown expected size or
     a size above the ceiling are not selected and do not consume the resource
     limit.
+
+    Checkpoint-completed resources remain present for runner reporting but do
+    not consume the resource limit.
     """
 
     if max_resources is not None and max_resources < 1:
@@ -54,6 +60,10 @@ def _select_campaign_manifest(
 
     for resource in manifest.resources:
         if resource.status == "verified":
+            selected.append(resource)
+            continue
+
+        if resource.url in completed_urls:
             selected.append(resource)
             continue
 
@@ -93,10 +103,22 @@ def run_manifest_campaign(
 
     manifest.validate()
 
+    checkpoint = (
+        ManifestCheckpointStore(checkpoint_path).load(manifest.manifest_id)
+        if checkpoint_path is not None
+        else {}
+    )
+    completed_urls = frozenset(
+        url
+        for url, record in checkpoint.items()
+        if is_successful_checkpoint_record(record)
+    )
+
     campaign_manifest = _select_campaign_manifest(
         manifest,
         max_resources=max_resources,
         max_resource_bytes=max_resource_bytes,
+        completed_urls=completed_urls,
     )
 
     run_result = run_collection_manifest(
@@ -110,6 +132,7 @@ def run_manifest_campaign(
         1
         for resource in campaign_manifest.resources
         if resource.status != "verified"
+        and resource.url not in completed_urls
     )
 
     return ManifestCampaignResult(

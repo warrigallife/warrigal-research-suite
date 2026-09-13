@@ -162,6 +162,41 @@ class ManifestCampaignTests(unittest.TestCase):
             self.assertEqual(calls, [])
 
 
+    def test_checkpoint_completed_resources_do_not_consume_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "campaign.json"
+
+            run_manifest_campaign(
+                make_manifest(),
+                pdf_handler=lambda resource: {"stored": True},
+                zip_handler=lambda resource: {"stored": True},
+                checkpoint_path=checkpoint,
+                max_resources=1,
+            )
+
+            calls = []
+            result = run_manifest_campaign(
+                make_manifest(),
+                pdf_handler=lambda resource: (
+                    calls.append(resource.url) or {"stored": True}
+                ),
+                zip_handler=lambda resource: (
+                    calls.append(resource.url) or {"stored": True}
+                ),
+                checkpoint_path=checkpoint,
+                max_resources=1,
+            )
+
+            self.assertEqual(
+                calls,
+                ["https://example.test/two.zip"],
+            )
+            self.assertEqual(result.selected_resources, 1)
+            self.assertEqual(
+                result.run_result.count("skipped_checkpoint"),
+                1,
+            )
+
     def test_resource_size_ceiling_skips_oversized_resource(self):
         manifest = make_manifest()
         manifest.resources[1].expected_size_bytes = 100
