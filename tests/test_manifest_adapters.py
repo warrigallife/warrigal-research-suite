@@ -3,7 +3,10 @@ import unittest
 from warrigal.acquisition.manifest import ManifestResource
 from warrigal.acquisition.manifest_adapters import (
     make_pdf_manifest_handler,
+    make_web_archive_manifest_handler,
 )
+from warrigal.acquisition.service import AcquisitionResult
+from warrigal.acquisition.web import WebResponse
 from warrigal.acquisition.web_documents import WebDocumentResult
 
 
@@ -183,6 +186,178 @@ class ManifestPdfAdapterTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             handler(resource)
+
+
+class FakeArchiveRepository:
+    def __init__(self):
+        self.sources = []
+
+    def save_source(self, source):
+        self.sources.append(source)
+
+
+class FakeArchiveFetcher:
+    def __init__(self):
+        self.urls = []
+
+    def fetch(self, url):
+        self.urls.append(url)
+        return WebResponse(
+            requested_url=url,
+            final_url="https://cdn.example.test/archive/data.zip",
+            status=200,
+            content_type="application/zip",
+            data=b"PK\x03\x04raw-test-archive-bytes",
+        )
+
+
+class FakeArchiveService:
+    instances = []
+
+    def __init__(self, repository, object_store):
+        self.repository = repository
+        self.object_store = object_store
+        self.calls = []
+        self.__class__.instances.append(self)
+
+    def acquire_bytes(self, **kwargs):
+        self.calls.append(kwargs)
+        return AcquisitionResult(
+            object_id="WRG-OBJ-ZIP-TEST",
+            acquisition_id="WRG-ACQ-ZIP-TEST",
+            sha256="b" * 64,
+            size_bytes=len(kwargs["data"]),
+            archive_path="/archive/test/data.zip",
+            deduplicated=False,
+        )
+
+
+class ManifestArchiveAdapterTests(unittest.TestCase):
+    def setUp(self):
+        FakeArchiveService.instances.clear()
+        self.repository = FakeArchiveRepository()
+        self.fetcher = FakeArchiveFetcher()
+
+    def resource(self):
+        return ManifestResource(
+            url="https://example.test/data.zip",
+            media_type="application/zip",
+            expected_size_bytes=27,
+            status="inventoried",
+            metadata={
+                "resource_note": "bounded archive test",
+            },
+        )
+
+    def handler(self):
+        return make_web_archive_manifest_handler(
+            repository=self.repository,
+            object_store=object(),
+            job_id="WRG-JOB-TEST",
+            node_id="WRG-NODE-TEST",
+            batch_id="WRG-BATCH-TEST",
+            collection_id="WRG-COL-TEST",
+            discovery_metadata={
+                "discovered_via": "test manifest",
+            },
+            fetcher=self.fetcher,
+            service_factory=FakeArchiveService,
+        )
+
+    def test_archive_handler_fetches_only_supplied_resource(self):
+        resource = self.resource()
+
+        result = self.handler()(resource)
+
+        self.assertEqual(self.fetcher.urls, [resource.url])
+        self.assertEqual(result["object_id"], "WRG-OBJ-ZIP-TEST")
+        self.assertEqual(result["acquisition_id"], "WRG-ACQ-ZIP-TEST")
+        self.assertEqual(result["sha256"], "b" * 64)
+
+    def test_archive_handler_preserves_raw_response_bytes(self):
+        self.handler()(self.resource())
+
+        service = FakeArchiveService.instances[0]
+        call = service.calls[0]
+
+        self.assertEqual(
+            call["data"],
+            b"PK\x03\x04raw-test-archive-bytes",
+        )
+        self.assertEqual(call["method"], "web_archive")
+        self.assertEqual(call["mime_type"], "application/zip")
+
+    def test_archive_handler_records_remote_source_provenance(self):
+        self.handler()(self.resource())
+
+        self.assertEqual(len(self.repository.sources), 1)
+
+        source = self.repository.sources[0]
+
+        self.assertEqual(source.source_type, "web_archive")
+        self.assertEqual(
+            source.locator,
+            "https://example.test/data.zip",
+        )
+        self.assertEqual(
+            source.final_locator,
+            "https://cdn.example.test/archive/data.zip",
+        )
+        self.assertEqual(source.title, "data.zip")
+        self.assertEqual(
+            source.metadata["discovered_via"],
+            "test manifest",
+        )
+        self.assertEqual(
+            source.metadata["resource_note"],
+            "bounded archive test",
+        )
+
+    def test_archive_handler_marks_contents_unprocessed(self):
+        result = self.handler()(self.resource())
+
+        source = self.repository.sources[0]
+        service = FakeArchiveService.instances[0]
+
+        self.assertFalse(result["archive_contents_processed"])
+        self.assertFalse(
+            source.metadata["archive_contents_processed"]
+        )
+        self.assertFalse(
+            service.calls[0]["metadata"][
+                "archive_contents_processed"
+            ]
+        )
+
+    def test_archive_handler_forwards_collection_and_http_context(self):
+        self.handler()(self.resource())
+
+        call = FakeArchiveService.instances[0].calls[0]
+
+        self.assertEqual(
+            call["collection_id"],
+            "WRG-COL-TEST",
+        )
+        self.assertEqual(call["http_status"], 200)
+        self.assertEqual(
+            call["original_filename"],
+            "data.zip",
+        )
+
+    def test_archive_handler_rejects_non_zip_resource(self):
+        handler = self.handler()
+
+        resource = ManifestResource(
+            url="https://example.test/manual.pdf",
+            media_type="application/pdf",
+        )
+
+        with self.assertRaises(ValueError):
+            handler(resource)
+
+        self.assertEqual(self.fetcher.urls, [])
+        self.assertEqual(self.repository.sources, [])
+        self.assertEqual(FakeArchiveService.instances, [])
 
 
 if __name__ == "__main__":
