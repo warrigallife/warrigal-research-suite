@@ -925,7 +925,17 @@ def run_acquire_manifest(
                 f"{item.url}"
             )
 
-        return 1 if result.run_result.count("failed") else 0
+        failed = result.run_result.count("failed")
+
+        print("=== CAMPAIGN COMPLETE ===")
+        print(f"SELECTED: {result.selected_resources}")
+        print(f"ACQUIRED: {result.run_result.count('acquired')}")
+        print(f"ARCHIVED: {result.run_result.count('archived')}")
+        print(f"FAILED:   {failed}")
+        if result.selected_resources == 0:
+            print("NO NEW RESOURCES")
+
+        return 1 if failed else 0
     finally:
         db.close()
 

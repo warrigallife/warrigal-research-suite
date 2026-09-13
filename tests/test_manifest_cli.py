@@ -57,6 +57,101 @@ class ManifestCLIParserTests(unittest.TestCase):
             )
 
 
+class ManifestCLIOutputTests(unittest.TestCase):
+    def test_zero_selection_footer_is_last_output(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import tempfile
+
+        from warrigal.cli import run_acquire_manifest
+
+        manifest = SimpleNamespace(
+            manifest_id="example-manifest",
+            name="Example manifest",
+            description="Example.",
+            discovery_provenance={},
+        )
+        run_result = SimpleNamespace(
+            items=[],
+            count=lambda status: 0,
+        )
+        campaign_result = SimpleNamespace(
+            selected_resources=0,
+            run_result=run_result,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.json"
+            checkpoint_path = Path(tmp) / "checkpoint.json"
+            manifest_path.write_text("{}", encoding="utf-8")
+            output = StringIO()
+
+            with (
+                patch(
+                    "warrigal.acquisition.manifest.CollectionManifest.from_json",
+                    return_value=manifest,
+                ),
+                patch("warrigal.cli.initialize_database") as database,
+                patch("warrigal.cli.WarrigalRepository"),
+                patch(
+                    "warrigal.cli.Node",
+                    return_value=SimpleNamespace(node_id="WRG-NODE-TEST"),
+                ),
+                patch(
+                    "warrigal.cli.Batch",
+                    return_value=SimpleNamespace(batch_id="WRG-BATCH-TEST"),
+                ),
+                patch(
+                    "warrigal.cli.Job",
+                    return_value=SimpleNamespace(job_id="WRG-JOB-TEST"),
+                ),
+                patch(
+                    "warrigal.cli.Collection",
+                    return_value=SimpleNamespace(
+                        collection_id="WRG-COL-TEST"
+                    ),
+                ),
+                patch("warrigal.cli.ObjectStore"),
+                patch(
+                    "warrigal.acquisition.manifest_adapters."
+                    "make_pdf_manifest_handler",
+                    return_value=Mock(),
+                ),
+                patch(
+                    "warrigal.acquisition.manifest_adapters."
+                    "make_web_archive_manifest_handler",
+                    return_value=Mock(),
+                ),
+                patch(
+                    "warrigal.acquisition.manifest_campaign."
+                    "run_manifest_campaign",
+                    return_value=campaign_result,
+                ),
+                redirect_stdout(output),
+            ):
+                result = run_acquire_manifest(
+                    str(manifest_path),
+                    checkpoint_path=str(checkpoint_path),
+                    max_resources=1,
+                    max_resource_bytes=2_000_000,
+                )
+
+        self.assertEqual(result, 0)
+        expected_footer = """=== CAMPAIGN COMPLETE ===
+SELECTED: 0
+ACQUIRED: 0
+ARCHIVED: 0
+FAILED:   0
+NO NEW RESOURCES"""
+        self.assertTrue(
+            output.getvalue().rstrip().endswith(expected_footer)
+        )
+        database.return_value.close.assert_called_once()
+
+
 class ManifestCLIDispatchTests(unittest.TestCase):
     @patch("warrigal.cli.run_acquire_manifest")
     @patch("sys.argv")
