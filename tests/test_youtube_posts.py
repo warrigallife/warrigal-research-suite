@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from warrigal.acquisition.youtube_posts import (
     YouTubePostCheckpointStore,
+    _balanced_json_after,
     ingest_youtube_posts,
     parse_youtube_posts,
 )
@@ -34,6 +35,17 @@ def post_payload():
 
 
 class YouTubePostTests(unittest.TestCase):
+    def test_json_locator_skips_javascript_function_definition(self):
+        html = (
+            "ytcfg.set=function(k,v){if(k){return v;}};"
+            'ytcfg.set({"INNERTUBE_API_KEY":"test-key"});'
+        )
+
+        self.assertEqual(
+            _balanced_json_after(html, "ytcfg.set"),
+            {"INNERTUBE_API_KEY": "test-key"},
+        )
+
     def test_renderer_parser_preserves_post_identity_and_text(self):
         posts = parse_youtube_posts(post_payload())
 

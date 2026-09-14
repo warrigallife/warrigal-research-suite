@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
-import re
+import ssl
 from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
+
+import certifi
 
 from warrigal.acquisition.service import AcquisitionService
 from warrigal.models import Passage, Source
@@ -17,6 +19,12 @@ from warrigal.repository import WarrigalRepository
 
 
 PostExtractor = Callable[[str, int, int], Mapping[str, Any]]
+
+
+def _trusted_ssl_context() -> ssl.SSLContext:
+    """Use the same portable CA bundle as Warrigal's web acquisition."""
+
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 @dataclass(frozen=True)
@@ -158,33 +166,36 @@ def parse_youtube_posts(payload: Mapping[str, Any]) -> list[YouTubePost]:
 
 
 def _balanced_json_after(html: str, marker: str) -> Mapping[str, Any] | None:
-    start = html.find(marker)
-    if start < 0:
-        return None
-    start = html.find("{", start + len(marker))
-    if start < 0:
-        return None
-    depth = 0
-    quoted = escaped = False
-    for index in range(start, len(html)):
-        char = html[index]
-        if quoted:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                quoted = False
-            continue
-        if char == '"':
-            quoted = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                value = json.loads(html[start:index + 1])
-                return value if isinstance(value, Mapping) else None
+    search_from = 0
+    while (marker_at := html.find(marker, search_from)) >= 0:
+        start = html.find("{", marker_at + len(marker))
+        if start < 0:
+            return None
+        depth = 0
+        quoted = escaped = False
+        for index in range(start, len(html)):
+            char = html[index]
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    quoted = False
+                continue
+            if char == '"':
+                quoted = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        value = json.loads(html[start:index + 1])
+                    except json.JSONDecodeError:
+                        break
+                    return value if isinstance(value, Mapping) else None
+        search_from = marker_at + len(marker)
     return None
 
 
@@ -222,7 +233,8 @@ def extract_youtube_posts(
     if not posts_url.endswith("/posts"):
         posts_url += "/posts"
     request = Request(posts_url, headers={"User-Agent": "Mozilla/5.0"})
-    with urlopen(request, timeout=60) as response:
+    ssl_context = _trusted_ssl_context()
+    with urlopen(request, timeout=60, context=ssl_context) as response:
         html = response.read().decode("utf-8")
         final_url = response.geturl()
     initial = _balanced_json_after(html, "ytInitialData")
@@ -254,7 +266,11 @@ def extract_youtube_posts(
             data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
         )
-        with urlopen(browse_request, timeout=60) as response:
+        with urlopen(
+            browse_request,
+            timeout=60,
+            context=ssl_context,
+        ) as response:
             page = json.loads(response.read().decode("utf-8"))
         if not isinstance(page, Mapping):
             break
