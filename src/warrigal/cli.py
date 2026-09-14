@@ -22,6 +22,7 @@ from warrigal.acquisition.youtube_comment_index import (
     find_youtube_comment_authors,
     index_archived_youtube_comments,
 )
+from warrigal.acquisition.youtube_posts import ingest_youtube_posts
 from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_profile
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
@@ -192,6 +193,32 @@ def build_parser() -> argparse.ArgumentParser:
     show_author_comments_parser.add_argument(
         "identity",
         help="Exact stable author ID, handle, or archived profile URL.",
+    )
+
+    youtube_posts_parser = subparsers.add_parser(
+        "ingest-youtube-posts",
+        help="Archive and index bounded YouTube Community posts.",
+    )
+    youtube_posts_parser.add_argument(
+        "channel",
+        help="Public YouTube channel URL or its /posts tab.",
+    )
+    youtube_posts_parser.add_argument(
+        "--checkpoint",
+        required=True,
+        help="JSON checkpoint path used to deduplicate archived posts.",
+    )
+    youtube_posts_parser.add_argument(
+        "--max-posts",
+        type=int,
+        default=100,
+        help="Maximum posts collected this run (default: 100).",
+    )
+    youtube_posts_parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=20,
+        help="Maximum Community-tab pages requested (default: 20).",
     )
 
     instagram_parser = subparsers.add_parser(
@@ -1071,6 +1098,63 @@ def run_index_youtube_comments() -> int:
         db.close()
 
 
+def run_ingest_youtube_posts(
+    channel_url: str,
+    *,
+    checkpoint_path: str,
+    max_posts: int = 100,
+    max_pages: int = 20,
+) -> int:
+    """Archive and index a bounded public YouTube Community-post view."""
+
+    if max_posts < 1 or max_pages < 1:
+        raise ValueError("YouTube post bounds must be at least 1")
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        object_store = ObjectStore()
+        node = Node(name="Warrigal YouTube Posts")
+        repository.save_node(node)
+        batch = Batch(node_id=node.node_id, label="YouTube post ingestion")
+        repository.save_batch(batch)
+        job = Job(
+            name="YouTube post ingestion",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+        collection = Collection(
+            name="YouTube Community Post Evidence",
+            description="Public YouTube Community posts preserved by Warrigal.",
+        )
+        repository.save_collection(collection)
+        result = ingest_youtube_posts(
+            channel_url,
+            checkpoint_path=checkpoint_path,
+            max_posts=max_posts,
+            max_pages=max_pages,
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+        )
+        print("=== WARRIGAL YOUTUBE COMMUNITY POSTS ===")
+        print(f"CHANNEL:          {result.channel_id} — {result.channel_title}")
+        print(f"OBJECT:           {result.object_id}")
+        print(f"ACQUISITION:      {result.acquisition_id}")
+        print(f"POSTS COLLECTED:  {result.collected_count}")
+        print(f"NEW POSTS:        {result.new_count}")
+        print(f"PASSAGES CREATED: {result.indexed_count}")
+        print(f"DEDUPLICATED:     {result.deduplicated}")
+        if result.new_count == 0:
+            print("NO NEW POSTS")
+        return 0
+    finally:
+        db.close()
+
+
 def run_find_youtube_comment_authors(query: str) -> int:
     """Find identities represented in locally indexed YouTube comments."""
 
@@ -1370,6 +1454,14 @@ def main() -> int:
 
     if args.command == "index-youtube-comments":
         return run_index_youtube_comments()
+
+    if args.command == "ingest-youtube-posts":
+        return run_ingest_youtube_posts(
+            args.channel,
+            checkpoint_path=args.checkpoint,
+            max_posts=args.max_posts,
+            max_pages=args.max_pages,
+        )
 
     if args.command == "find-youtube-comment-authors":
         return run_find_youtube_comment_authors(args.query)

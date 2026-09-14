@@ -9,6 +9,36 @@ from warrigal.cli import (
 
 
 class YouTubeCommentsCLITests(unittest.TestCase):
+    def test_parser_accepts_youtube_post_ingestion(self):
+        args = build_parser().parse_args([
+            "ingest-youtube-posts",
+            "https://www.youtube.com/@JimmyDaSciencePreacher/posts",
+            "--checkpoint", "workspace/jimmy-posts.json",
+            "--max-posts", "80",
+            "--max-pages", "12",
+        ])
+
+        self.assertEqual(args.command, "ingest-youtube-posts")
+        self.assertEqual(args.max_posts, 80)
+        self.assertEqual(args.max_pages, 12)
+
+    @patch("warrigal.cli.run_ingest_youtube_posts", return_value=0)
+    def test_main_dispatches_youtube_post_ingestion(self, run_posts):
+        with patch("sys.argv", [
+            "warrigal", "ingest-youtube-posts",
+            "https://www.youtube.com/@JimmyDaSciencePreacher/posts",
+            "--checkpoint", "workspace/jimmy-posts.json",
+        ]):
+            result = main()
+
+        self.assertEqual(result, 0)
+        run_posts.assert_called_once_with(
+            "https://www.youtube.com/@JimmyDaSciencePreacher/posts",
+            checkpoint_path="workspace/jimmy-posts.json",
+            max_posts=100,
+            max_pages=20,
+        )
+
     def test_parser_accepts_local_comment_research_commands(self):
         parser = build_parser()
 
