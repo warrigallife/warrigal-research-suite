@@ -267,6 +267,64 @@ class ManifestCampaignTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
+    def test_failures_are_retried_individually_after_first_pass(self):
+        calls = []
+        attempts = {}
+        delays = []
+
+        def pdf_handler(resource):
+            calls.append(resource.url)
+            attempts[resource.url] = attempts.get(resource.url, 0) + 1
+            if resource.url.endswith("one.pdf") and attempts[resource.url] == 1:
+                raise TimeoutError("temporary timeout")
+            return {"stored": True}
+
+        result = run_manifest_campaign(
+            make_manifest(), pdf_handler=pdf_handler,
+            zip_handler=lambda resource: calls.append(resource.url) or {"stored": True},
+            max_resources=2, retry_failures=2, retry_delay_seconds=2.0,
+            sleeper=delays.append,
+        )
+
+        self.assertEqual(calls, [
+            "https://example.test/one.pdf",
+            "https://example.test/two.zip",
+            "https://example.test/one.pdf",
+        ])
+        self.assertEqual(delays, [2.0])
+        self.assertEqual(result.run_result.count("failed"), 0)
+        self.assertEqual(result.retry_attempts, 1)
+        self.assertEqual(result.retried_resources, 1)
+        self.assertEqual(result.exhausted_failures, 0)
+
+    def test_exhausted_retry_remains_a_final_failure(self):
+        calls = []
+        delays = []
+
+        def pdf_handler(resource):
+            calls.append(resource.url)
+            raise TimeoutError("persistent timeout")
+
+        result = run_manifest_campaign(
+            make_manifest(), pdf_handler=pdf_handler, max_resources=1,
+            retry_failures=2, retry_delay_seconds=1.5,
+            sleeper=delays.append,
+        )
+
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(delays, [1.5, 3.0])
+        self.assertEqual(result.run_result.count("failed"), 1)
+        self.assertEqual(result.retry_attempts, 2)
+        self.assertEqual(result.retried_resources, 0)
+        self.assertEqual(result.exhausted_failures, 1)
+
+    def test_invalid_retry_controls_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "retry_failures"):
+            run_manifest_campaign(make_manifest(), retry_failures=-1)
+
+        with self.assertRaisesRegex(ValueError, "retry_delay_seconds"):
+            run_manifest_campaign(make_manifest(), retry_delay_seconds=-0.1)
+
 
 if __name__ == "__main__":
     unittest.main()

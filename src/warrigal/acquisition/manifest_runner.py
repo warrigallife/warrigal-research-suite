@@ -202,6 +202,9 @@ def run_collection_manifest(
             }
 
         else:
+            attempt_count = int((previous or {}).get("attempt_count", 0)) + 1
+            errors = list((previous or {}).get("errors") or [])
+
             try:
                 metadata = dict(handler(resource) or {})
 
@@ -219,10 +222,13 @@ def run_collection_manifest(
                     "action": item.action,
                     "metadata": metadata,
                     "error": None,
+                    "attempt_count": attempt_count,
+                    "errors": errors,
                 }
 
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
+                errors.append(error)
 
                 item = ManifestRunItem(
                     url=resource.url,
@@ -238,6 +244,8 @@ def run_collection_manifest(
                     "action": item.action,
                     "metadata": {},
                     "error": error,
+                    "attempt_count": attempt_count,
+                    "errors": errors,
                 }
 
         items.append(item)

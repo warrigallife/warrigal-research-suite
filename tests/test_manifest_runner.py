@@ -159,6 +159,14 @@ class ManifestRunnerTests(unittest.TestCase):
                 payload["resources"][good_zip.url]["status"],
                 "archived",
             )
+            self.assertEqual(
+                payload["resources"][failed_pdf.url]["attempt_count"],
+                1,
+            )
+            self.assertEqual(
+                payload["resources"][failed_pdf.url]["errors"],
+                ["RuntimeError: simulated PDF failure"],
+            )
 
     def test_resume_skips_success_and_retries_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -212,6 +220,14 @@ class ManifestRunnerTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(second_result.count("acquired"), 1)
+
+            payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+            record = payload["resources"][second.url]
+            self.assertEqual(record["attempt_count"], 2)
+            self.assertEqual(
+                record["errors"],
+                ["RuntimeError: temporary failure"],
+            )
 
     def test_checkpoint_for_different_manifest_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

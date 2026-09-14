@@ -227,6 +227,24 @@ def build_parser() -> argparse.ArgumentParser:
             "Unknown-size and oversized resources are skipped."
         ),
     )
+    manifest_parser.add_argument(
+        "--retry-failures",
+        type=int,
+        default=0,
+        help="Retry each failed resource individually this many times.",
+    )
+    manifest_parser.add_argument(
+        "--retry-delay-seconds",
+        type=float,
+        default=0.0,
+        help="Initial delay before isolated retries; later delays double.",
+    )
+    manifest_parser.add_argument(
+        "--read-timeout",
+        type=float,
+        default=30.0,
+        help="HTTP read timeout in seconds for manifest resources.",
+    )
 
     return parser
 
@@ -827,6 +845,9 @@ def run_acquire_manifest(
     checkpoint_path: str,
     max_resources: int,
     max_resource_bytes: int | None = None,
+    retry_failures: int = 0,
+    retry_delay_seconds: float = 0.0,
+    read_timeout: float = 30.0,
 ) -> int:
     """Acquire a bounded collection manifest into Warrigal."""
 
@@ -836,6 +857,7 @@ def run_acquire_manifest(
         make_web_archive_manifest_handler,
     )
     from warrigal.acquisition.manifest_campaign import run_manifest_campaign
+    from warrigal.acquisition.web import WebFetcher
 
     manifest_file = Path(manifest_path).expanduser().resolve()
     checkpoint_file = Path(checkpoint_path).expanduser().resolve()
@@ -849,6 +871,12 @@ def run_acquire_manifest(
 
     if max_resource_bytes is not None and max_resource_bytes < 0:
         raise ValueError("--max-resource-bytes must be non-negative")
+    if retry_failures < 0:
+        raise ValueError("--retry-failures must be non-negative")
+    if retry_delay_seconds < 0:
+        raise ValueError("--retry-delay-seconds must be non-negative")
+    if read_timeout <= 0:
+        raise ValueError("--read-timeout must be greater than zero")
 
     db = initialize_database()
     repository = WarrigalRepository(db)
@@ -877,6 +905,7 @@ def run_acquire_manifest(
         repository.save_collection(collection)
 
         object_store = ObjectStore()
+        fetcher = WebFetcher(timeout=read_timeout)
 
         discovery_metadata = dict(manifest.discovery_provenance)
         discovery_metadata["manifest_id"] = manifest.manifest_id
@@ -889,6 +918,7 @@ def run_acquire_manifest(
             batch_id=batch.batch_id,
             collection_id=collection.collection_id,
             discovery_metadata=discovery_metadata,
+            fetcher=fetcher,
         )
 
         zip_handler = make_web_archive_manifest_handler(
@@ -899,6 +929,7 @@ def run_acquire_manifest(
             batch_id=batch.batch_id,
             collection_id=collection.collection_id,
             discovery_metadata=discovery_metadata,
+            fetcher=fetcher,
         )
 
         result = run_manifest_campaign(
@@ -908,6 +939,8 @@ def run_acquire_manifest(
             checkpoint_path=checkpoint_file,
             max_resources=max_resources,
             max_resource_bytes=max_resource_bytes,
+            retry_failures=retry_failures,
+            retry_delay_seconds=retry_delay_seconds,
         )
 
         print("=== WARRIGAL MANIFEST CAMPAIGN ===")
@@ -916,6 +949,8 @@ def run_acquire_manifest(
         print(f"CHECKPOINT:         {checkpoint_file}")
         print(f"RESOURCE LIMIT:     {max_resources}")
         print(f"RESOURCE BYTE LIMIT:{max_resource_bytes!s:>11}")
+        print(f"READ TIMEOUT:       {read_timeout:g} seconds")
+        print(f"RETRY LIMIT:        {retry_failures}")
         print(f"SELECTED RESOURCES: {result.selected_resources}")
 
         for item in result.run_result.items:
@@ -932,6 +967,9 @@ def run_acquire_manifest(
         print(f"ACQUIRED: {result.run_result.count('acquired')}")
         print(f"ARCHIVED: {result.run_result.count('archived')}")
         print(f"FAILED:   {failed}")
+        print(f"RETRY ATTEMPTS:    {result.retry_attempts}")
+        print(f"RETRIED SUCCESS:   {result.retried_resources}")
+        print(f"EXHAUSTED:         {result.exhausted_failures}")
         if result.selected_resources == 0:
             print("NO NEW RESOURCES")
 
@@ -952,6 +990,9 @@ def main() -> int:
             checkpoint_path=args.checkpoint,
             max_resources=args.max_resources,
             max_resource_bytes=args.max_resource_bytes,
+            retry_failures=args.retry_failures,
+            retry_delay_seconds=args.retry_delay_seconds,
+            read_timeout=args.read_timeout,
         )
 
     if args.command == "acquire":

@@ -18,6 +18,9 @@ class ManifestCLIParserTests(unittest.TestCase):
                 "1",
                 "--max-resource-bytes",
                 "1000000",
+                "--retry-failures", "3",
+                "--retry-delay-seconds", "2.5",
+                "--read-timeout", "300",
             ]
         )
 
@@ -29,6 +32,9 @@ class ManifestCLIParserTests(unittest.TestCase):
         )
         self.assertEqual(args.max_resources, 1)
         self.assertEqual(args.max_resource_bytes, 1_000_000)
+        self.assertEqual(args.retry_failures, 3)
+        self.assertEqual(args.retry_delay_seconds, 2.5)
+        self.assertEqual(args.read_timeout, 300.0)
 
     def test_manifest_campaign_requires_checkpoint(self):
         parser = build_parser()
@@ -81,6 +87,9 @@ class ManifestCLIOutputTests(unittest.TestCase):
         campaign_result = SimpleNamespace(
             selected_resources=0,
             run_result=run_result,
+            retry_attempts=0,
+            retried_resources=0,
+            exhausted_failures=0,
         )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,6 +154,9 @@ SELECTED: 0
 ACQUIRED: 0
 ARCHIVED: 0
 FAILED:   0
+RETRY ATTEMPTS:    0
+RETRIED SUCCESS:   0
+EXHAUSTED:         0
 NO NEW RESOURCES"""
         self.assertTrue(
             output.getvalue().rstrip().endswith(expected_footer)
@@ -175,6 +187,9 @@ class ManifestCLIDispatchTests(unittest.TestCase):
                 "1",
                 "--max-resource-bytes",
                 "1000000",
+                "--retry-failures", "3",
+                "--retry-delay-seconds", "2.5",
+                "--read-timeout", "300",
             ],
         ):
             run_acquire_manifest.return_value = 0
@@ -186,6 +201,9 @@ class ManifestCLIDispatchTests(unittest.TestCase):
             checkpoint_path="workspace/example.checkpoint.json",
             max_resources=1,
             max_resource_bytes=1_000_000,
+            retry_failures=3,
+            retry_delay_seconds=2.5,
+            read_timeout=300.0,
         )
 
 

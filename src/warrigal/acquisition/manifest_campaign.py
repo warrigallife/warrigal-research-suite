@@ -2,9 +2,10 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from time import sleep
 from typing import Callable
 
-from warrigal.acquisition.manifest import CollectionManifest
+from warrigal.acquisition.manifest import CollectionManifest, ManifestResource
 from warrigal.acquisition.manifest_runner import (
     ManifestCheckpointStore,
     ManifestRunItem,
@@ -23,6 +24,25 @@ class ManifestCampaignResult:
     attempted_limit: int | None
     selected_resources: int
     run_result: ManifestRunResult
+    retry_attempts: int = 0
+    retried_resources: int = 0
+    exhausted_failures: int = 0
+
+
+def _manifest_with_resources(
+    manifest: CollectionManifest,
+    resources: tuple[ManifestResource, ...],
+) -> CollectionManifest:
+    """Return an immutable view containing only the supplied resources."""
+    return CollectionManifest(
+        manifest_id=manifest.manifest_id,
+        name=manifest.name,
+        description=manifest.description,
+        discovery_provenance=dict(manifest.discovery_provenance),
+        resources=resources,
+        leads=manifest.leads,
+        metadata=dict(manifest.metadata),
+    )
 
 
 def _select_campaign_manifest(
@@ -98,10 +118,18 @@ def run_manifest_campaign(
     checkpoint_path: Path | None = None,
     max_resources: int | None = None,
     max_resource_bytes: int | None = None,
+    retry_failures: int = 0,
+    retry_delay_seconds: float = 0.0,
+    sleeper: Callable[[float], None] = sleep,
 ) -> ManifestCampaignResult:
     """Run a bounded acquisition campaign over an immutable manifest."""
 
     manifest.validate()
+
+    if retry_failures < 0:
+        raise ValueError("retry_failures must be non-negative")
+    if retry_delay_seconds < 0:
+        raise ValueError("retry_delay_seconds must be non-negative")
 
     checkpoint = (
         ManifestCheckpointStore(checkpoint_path).load(manifest.manifest_id)
@@ -121,12 +149,53 @@ def run_manifest_campaign(
         completed_urls=completed_urls,
     )
 
-    run_result = run_collection_manifest(
+    first_run_result = run_collection_manifest(
         campaign_manifest,
         pdf_handler=pdf_handler,
         zip_handler=zip_handler,
         checkpoint_path=checkpoint_path,
     )
+
+    items = list(first_run_result.items)
+    resource_by_url = {
+        resource.url: resource
+        for resource in campaign_manifest.resources
+    }
+    retry_attempts = 0
+    retried_resources = 0
+
+    for index, first_item in enumerate(tuple(items)):
+        if first_item.status != "failed":
+            continue
+
+        resource = resource_by_url[first_item.url]
+        final_item = first_item
+
+        for retry_index in range(retry_failures):
+            delay = retry_delay_seconds * (2 ** retry_index)
+            if delay:
+                sleeper(delay)
+
+            retry_result = run_collection_manifest(
+                _manifest_with_resources(manifest, (resource,)),
+                pdf_handler=pdf_handler,
+                zip_handler=zip_handler,
+                checkpoint_path=checkpoint_path,
+            )
+            final_item = retry_result.items[0]
+            retry_attempts += 1
+
+            if final_item.status != "failed":
+                retried_resources += 1
+                break
+
+        items[index] = final_item
+
+    run_result = ManifestRunResult(
+        manifest_id=manifest.manifest_id,
+        items=tuple(items),
+    )
+    exhausted_failures = run_result.count("failed")
 
     selected_resources = sum(
         1
@@ -140,4 +209,7 @@ def run_manifest_campaign(
         attempted_limit=max_resources,
         selected_resources=selected_resources,
         run_result=run_result,
+        retry_attempts=retry_attempts,
+        retried_resources=retried_resources,
+        exhausted_failures=exhausted_failures,
     )
