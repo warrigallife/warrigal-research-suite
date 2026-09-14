@@ -13,6 +13,7 @@ from warrigal.audio_cli import run_ingest_audio
 from warrigal.video_cli import run_ingest_video
 from warrigal.youtube_media_cli import run_ingest_youtube_media
 from warrigal.acquisition.youtube import ingest_video_transcript
+from warrigal.acquisition.youtube_comments import ingest_youtube_comments
 from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_profile
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
@@ -96,6 +97,29 @@ def build_parser() -> argparse.ArgumentParser:
     youtube_parser.add_argument(
         "url",
         help="Public YouTube video URL to ingest.",
+    )
+
+    youtube_comments_parser = subparsers.add_parser(
+        "ingest-youtube-comments",
+        help="Archive bounded comments and index one target author.",
+    )
+    youtube_comments_parser.add_argument(
+        "url",
+        help="Public YouTube video URL whose comments will be collected.",
+    )
+    youtube_comments_parser.add_argument(
+        "--target-author-id",
+        help="Stable YouTube channel ID for the target comment author.",
+    )
+    youtube_comments_parser.add_argument(
+        "--target-author-handle",
+        help="Target handle such as @TFJ7; handle-only matches are provisional.",
+    )
+    youtube_comments_parser.add_argument(
+        "--max-comments",
+        type=int,
+        default=1000,
+        help="Maximum comments to collect from this video (default: 1000).",
     )
 
     instagram_parser = subparsers.add_parser(
@@ -792,6 +816,82 @@ def run_ingest_youtube(url: str) -> int:
     return 0
 
 
+def run_ingest_youtube_comments(
+    url: str,
+    *,
+    target_author_id: str | None = None,
+    target_author_handle: str | None = None,
+    max_comments: int = 1000,
+) -> int:
+    """Archive public comments and index statements by one target author."""
+
+    if not target_author_id and not target_author_handle:
+        raise ValueError(
+            "Provide --target-author-id or --target-author-handle"
+        )
+    if max_comments < 1:
+        raise ValueError("--max-comments must be at least 1")
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        object_store = ObjectStore()
+        node = Node(name="Warrigal YouTube Comments")
+        repository.save_node(node)
+        batch = Batch(
+            node_id=node.node_id,
+            label="YouTube comment ingestion",
+        )
+        repository.save_batch(batch)
+        job = Job(
+            name="YouTube comment ingestion",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+        collection = Collection(
+            name="YouTube Comment Evidence",
+            description="Public YouTube comments preserved by Warrigal.",
+        )
+        repository.save_collection(collection)
+
+        result = ingest_youtube_comments(
+            url,
+            target_author_id=target_author_id,
+            target_author_handle=target_author_handle,
+            max_comments=max_comments,
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+        )
+
+        print("=== WARRIGAL YOUTUBE COMMENT INGESTION ===")
+        print(f"VIDEO:          {result.video_id} — {result.video_title}")
+        print(f"OBJECT:         {result.object_id}")
+        print(f"ACQUISITION:    {result.acquisition_id}")
+        print(f"COMMENTS:       {result.collected_count}")
+        print(f"TARGET MATCHES: {result.matched_count}")
+        print(f"MATCH BASIS:    {result.match_basis}")
+        if result.matched_author_ids:
+            print(
+                "AUTHOR IDS:     "
+                + ", ".join(result.matched_author_ids)
+            )
+        if result.match_basis == "author_handle_provisional":
+            print("IDENTITY:       PROVISIONAL — confirm stable author ID")
+        elif result.match_basis == "author_id":
+            print("IDENTITY:       EXPLICIT AUTHOR ID")
+        else:
+            print("IDENTITY:       NO MATCH FOUND")
+        print(f"DEDUPLICATED:   {result.deduplicated}")
+        return 0
+    finally:
+        db.close()
+
+
 def run_search(
     query: str,
     min_query_coverage: float = 0.0,
@@ -1015,6 +1115,14 @@ def main() -> int:
 
     if args.command == "ingest-youtube":
         return run_ingest_youtube(args.url)
+
+    if args.command == "ingest-youtube-comments":
+        return run_ingest_youtube_comments(
+            args.url,
+            target_author_id=args.target_author_id,
+            target_author_handle=args.target_author_handle,
+            max_comments=args.max_comments,
+        )
 
     if args.command == "ingest-instagram-profile":
         return run_ingest_instagram_profile(
