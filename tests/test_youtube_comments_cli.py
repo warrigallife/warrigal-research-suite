@@ -9,6 +9,51 @@ from warrigal.cli import (
 
 
 class YouTubeCommentsCLITests(unittest.TestCase):
+    def test_parser_accepts_local_comment_research_commands(self):
+        parser = build_parser()
+
+        index_args = parser.parse_args(["index-youtube-comments"])
+        find_args = parser.parse_args(
+            ["find-youtube-comment-authors", "scrolls"]
+        )
+        show_args = parser.parse_args(
+            ["show-youtube-comments-by-author", "UC-TOM"]
+        )
+
+        self.assertEqual(index_args.command, "index-youtube-comments")
+        self.assertEqual(find_args.query, "scrolls")
+        self.assertEqual(show_args.identity, "UC-TOM")
+
+    @patch("warrigal.cli.run_index_youtube_comments", return_value=0)
+    def test_main_dispatches_local_comment_index(self, run_index):
+        with patch("sys.argv", ["warrigal", "index-youtube-comments"]):
+            result = main()
+
+        self.assertEqual(result, 0)
+        run_index.assert_called_once_with()
+
+    @patch("warrigal.cli.run_find_youtube_comment_authors", return_value=0)
+    def test_main_dispatches_author_search(self, run_find):
+        with patch(
+            "sys.argv",
+            ["warrigal", "find-youtube-comment-authors", "scrolls"],
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        run_find.assert_called_once_with("scrolls")
+
+    @patch("warrigal.cli.run_show_youtube_comments_by_author", return_value=0)
+    def test_main_dispatches_author_comment_listing(self, run_show):
+        with patch(
+            "sys.argv",
+            ["warrigal", "show-youtube-comments-by-author", "UC-TOM"],
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        run_show.assert_called_once_with("UC-TOM")
+
     def test_parser_accepts_checkpointed_channel_campaign(self):
         args = build_parser().parse_args(
             [

@@ -408,6 +408,22 @@ class WarrigalRepository:
             ORDER BY acquired_at DESC
             """
         ).fetchall()
+
+    def list_acquisitions_by_method(
+        self,
+        method: str,
+    ) -> list[sqlite3.Row]:
+        """Return acquisitions made through one acquisition method."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM acquisitions
+            WHERE method = ?
+            ORDER BY acquired_at, acquisition_id
+            """,
+            (method,),
+        ).fetchall()
     
     def get_acquisitions_for_object(
         self,

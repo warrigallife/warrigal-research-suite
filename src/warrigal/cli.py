@@ -17,6 +17,11 @@ from warrigal.acquisition.youtube_comments import ingest_youtube_comments
 from warrigal.acquisition.youtube_comment_campaign import (
     run_youtube_comment_campaign,
 )
+from warrigal.acquisition.youtube_comment_index import (
+    comments_by_author,
+    find_youtube_comment_authors,
+    index_archived_youtube_comments,
+)
 from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_profile
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
@@ -164,6 +169,29 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1000,
         help="Maximum comments collected per video (default: 1000).",
+    )
+
+    subparsers.add_parser(
+        "index-youtube-comments",
+        help="Index comments from Warrigal's local YouTube snapshots.",
+    )
+
+    find_comment_authors_parser = subparsers.add_parser(
+        "find-youtube-comment-authors",
+        help="Find archived YouTube commenters by handle or stable ID.",
+    )
+    find_comment_authors_parser.add_argument(
+        "query",
+        help="Case-insensitive author handle, name, profile URL, or ID fragment.",
+    )
+
+    show_author_comments_parser = subparsers.add_parser(
+        "show-youtube-comments-by-author",
+        help="Show indexed comments from one exact handle or stable ID.",
+    )
+    show_author_comments_parser.add_argument(
+        "identity",
+        help="Exact stable author ID, handle, or archived profile URL.",
     )
 
     instagram_parser = subparsers.add_parser(
@@ -1021,6 +1049,82 @@ def run_ingest_youtube_channel_comments(
         db.close()
 
 
+def run_index_youtube_comments() -> int:
+    """Index all comments already preserved in Warrigal's local archive."""
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        result = index_archived_youtube_comments(
+            repository=repository,
+            object_store=ObjectStore(),
+        )
+        print("=== WARRIGAL YOUTUBE COMMENT INDEX ===")
+        print(f"OBJECTS SCANNED:   {result.objects_scanned}")
+        print(f"VALID SNAPSHOTS:   {result.snapshots_indexed}")
+        print(f"COMMENTS SEEN:     {result.comments_seen}")
+        print(f"ALREADY INDEXED:   {result.already_indexed}")
+        print(f"PASSAGES CREATED:  {result.passages_created}")
+        print(f"INVALID SNAPSHOTS: {result.invalid_snapshots}")
+        return 1 if result.invalid_snapshots else 0
+    finally:
+        db.close()
+
+
+def run_find_youtube_comment_authors(query: str) -> int:
+    """Find identities represented in locally indexed YouTube comments."""
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        authors = find_youtube_comment_authors(
+            repository.list_passages(),
+            query,
+        )
+        print("=== WARRIGAL YOUTUBE COMMENT AUTHORS ===")
+        print(f"QUERY:   {query}")
+        print(f"RESULTS: {len(authors)}")
+        for author in authors:
+            print()
+            print(f"AUTHOR ID: {author.author_id or 'UNAVAILABLE'}")
+            print(f"HANDLES:   {', '.join(author.handles) or 'UNAVAILABLE'}")
+            print(
+                f"PROFILES:  {', '.join(author.profile_urls) or 'UNAVAILABLE'}"
+            )
+            print(f"COMMENTS:  {author.comment_count}")
+            print(f"VIDEOS:    {author.video_count}")
+        return 0
+    finally:
+        db.close()
+
+
+def run_show_youtube_comments_by_author(author_identity: str) -> int:
+    """Print locally indexed comments belonging to one exact identity."""
+
+    import json
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        rows = comments_by_author(
+            repository.list_passages(),
+            author_identity,
+        )
+        print("=== WARRIGAL YOUTUBE COMMENTS BY AUTHOR ===")
+        print(f"IDENTITY: {author_identity}")
+        print(f"COMMENTS: {len(rows)}")
+        for row in rows:
+            metadata = json.loads(row["metadata_json"])
+            print()
+            print(f"VIDEO:   {metadata.get('video_id')}")
+            print(f"COMMENT: {metadata.get('comment_id')}")
+            print(f"SOURCE:  {row['source_url']}")
+            print(f"TEXT:    {row['text']}")
+        return 0
+    finally:
+        db.close()
+
+
 def run_search(
     query: str,
     min_query_coverage: float = 0.0,
@@ -1263,6 +1367,15 @@ def main() -> int:
             max_videos=args.max_videos,
             max_comments=args.max_comments,
         )
+
+    if args.command == "index-youtube-comments":
+        return run_index_youtube_comments()
+
+    if args.command == "find-youtube-comment-authors":
+        return run_find_youtube_comment_authors(args.query)
+
+    if args.command == "show-youtube-comments-by-author":
+        return run_show_youtube_comments_by_author(args.identity)
 
     if args.command == "ingest-instagram-profile":
         return run_ingest_instagram_profile(
