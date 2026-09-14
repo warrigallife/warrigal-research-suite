@@ -8,6 +8,7 @@ from warrigal.acquisition.youtube_comments import (
     extract_youtube_comments,
     ingest_youtube_comments,
     parse_youtube_comments,
+    select_target_thread_context,
 )
 from warrigal.database import initialize_database
 from warrigal.models import Batch, Collection, Job, Node
@@ -46,7 +47,124 @@ def comment_info():
     }
 
 
+def thread_info():
+    info = comment_info()
+    info["comments"] = [
+        {
+            "id": "parent",
+            "text": "Question for Tom",
+            "author": "@reader",
+            "author_id": "UC-READER",
+            "parent": "root",
+        },
+        {
+            "id": "tom-reply",
+            "text": "Tom answers",
+            "author": "@TFJ7",
+            "author_id": "UC-TOM",
+            "parent": "parent",
+        },
+        {
+            "id": "reply-to-tom",
+            "text": "Follow-up to Tom",
+            "author": "@reader2",
+            "author_id": "UC-READER2",
+            "parent": "tom-reply",
+        },
+        {
+            "id": "unrelated",
+            "text": "Unrelated",
+            "author": "@other",
+            "author_id": "UC-OTHER",
+            "parent": "root",
+        },
+    ]
+    return info
+
+
 class YouTubeCommentTests(unittest.TestCase):
+    def test_selects_target_parent_and_direct_reply_context(self):
+        info = thread_info()
+        comments = parse_youtube_comments(info)
+        selected = select_target_thread_context(
+            comments,
+            [(comments[1], "author_id")],
+        )
+
+        self.assertEqual(
+            [(comment.comment_id, role) for comment, role, _ in selected],
+            [
+                ("parent", "parent_context"),
+                ("tom-reply", "target_author"),
+                ("reply-to-tom", "reply_context"),
+            ],
+        )
+
+    def test_rerun_restores_missing_context_without_duplicate_targets(self):
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            connection = initialize_database(root / "warrigal.db")
+            repository = WarrigalRepository(connection)
+            object_store = ObjectStore(root / "objects")
+            node = Node(name="Context Upgrade")
+            repository.save_node(node)
+            batch = Batch(node_id=node.node_id)
+            repository.save_batch(batch)
+            job = Job(
+                name="Context Upgrade",
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+            )
+            repository.save_job(job)
+            collection = Collection(name="Context Upgrade")
+            repository.save_collection(collection)
+            kwargs = {
+                "target_author_id": "UC-TOM",
+                "repository": repository,
+                "object_store": object_store,
+                "job_id": job.job_id,
+                "node_id": node.node_id,
+                "batch_id": batch.batch_id,
+                "collection_id": collection.collection_id,
+                "extractor": lambda url, limit: thread_info(),
+            }
+
+            first = ingest_youtube_comments(
+                "https://www.youtube.com/watch?v=video-test",
+                **kwargs,
+            )
+            rows = repository.get_passages_for_object(first.object_id)
+            target_id = next(
+                row["passage_id"]
+                for row in rows
+                if json.loads(row["metadata_json"])["context_role"]
+                == "target_author"
+            )
+            connection.execute(
+                "DELETE FROM passages WHERE object_id = ? AND passage_id != ?",
+                (first.object_id, target_id),
+            )
+            connection.commit()
+
+            second = ingest_youtube_comments(
+                "https://www.youtube.com/watch?v=video-test",
+                **kwargs,
+            )
+
+            self.assertTrue(second.deduplicated)
+            self.assertEqual(second.indexed_count, 2)
+            restored = repository.get_passages_for_object(first.object_id)
+            self.assertEqual(len(restored), 3)
+            roles = {
+                json.loads(row["metadata_json"])["context_role"]
+                for row in restored
+            }
+            self.assertEqual(
+                roles,
+                {"target_author", "parent_context", "reply_context"},
+            )
+            connection.close()
+
     def test_parse_comments_preserves_identity_and_thread_provenance(self):
         comments = parse_youtube_comments(comment_info())
 

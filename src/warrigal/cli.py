@@ -14,6 +14,9 @@ from warrigal.video_cli import run_ingest_video
 from warrigal.youtube_media_cli import run_ingest_youtube_media
 from warrigal.acquisition.youtube import ingest_video_transcript
 from warrigal.acquisition.youtube_comments import ingest_youtube_comments
+from warrigal.acquisition.youtube_comment_campaign import (
+    run_youtube_comment_campaign,
+)
 from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_profile
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
@@ -120,6 +123,47 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1000,
         help="Maximum comments to collect from this video (default: 1000).",
+    )
+
+    youtube_comment_campaign_parser = subparsers.add_parser(
+        "ingest-youtube-channel-comments",
+        help="Checkpoint comment evidence across a bounded channel view.",
+    )
+    youtube_comment_campaign_parser.add_argument(
+        "channel",
+        help="Public YouTube channel videos URL.",
+    )
+    youtube_comment_campaign_parser.add_argument(
+        "--target-author-id",
+        required=True,
+        help="Confirmed stable channel ID for the target comment author.",
+    )
+    youtube_comment_campaign_parser.add_argument(
+        "--target-author-handle",
+        help="Optional human-readable target handle for provenance.",
+    )
+    youtube_comment_campaign_parser.add_argument(
+        "--checkpoint",
+        required=True,
+        help="JSON checkpoint path used to resume the campaign.",
+    )
+    youtube_comment_campaign_parser.add_argument(
+        "--scan-videos",
+        type=int,
+        default=100,
+        help="Maximum channel videos to discover (default: 100).",
+    )
+    youtube_comment_campaign_parser.add_argument(
+        "--max-videos",
+        type=int,
+        default=5,
+        help="Maximum unfinished videos to process this run (default: 5).",
+    )
+    youtube_comment_campaign_parser.add_argument(
+        "--max-comments",
+        type=int,
+        default=1000,
+        help="Maximum comments collected per video (default: 1000).",
     )
 
     instagram_parser = subparsers.add_parser(
@@ -874,6 +918,8 @@ def run_ingest_youtube_comments(
         print(f"ACQUISITION:    {result.acquisition_id}")
         print(f"COMMENTS:       {result.collected_count}")
         print(f"TARGET MATCHES: {result.matched_count}")
+        print(f"THREAD CONTEXT: {result.context_count}")
+        print(f"NEW PASSAGES:   {result.indexed_count}")
         print(f"MATCH BASIS:    {result.match_basis}")
         if result.matched_author_ids:
             print(
@@ -888,6 +934,89 @@ def run_ingest_youtube_comments(
             print("IDENTITY:       NO MATCH FOUND")
         print(f"DEDUPLICATED:   {result.deduplicated}")
         return 0
+    finally:
+        db.close()
+
+
+def run_ingest_youtube_channel_comments(
+    channel_url: str,
+    *,
+    target_author_id: str,
+    target_author_handle: str | None,
+    checkpoint_path: str,
+    scan_videos: int,
+    max_videos: int,
+    max_comments: int,
+) -> int:
+    """Run a resumable bounded comment campaign over channel videos."""
+
+    if scan_videos < 1 or max_videos < 1 or max_comments < 1:
+        raise ValueError("YouTube comment campaign bounds must be at least 1")
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        object_store = ObjectStore()
+        node = Node(name="Warrigal YouTube Comment Campaign")
+        repository.save_node(node)
+        batch = Batch(
+            node_id=node.node_id,
+            label="YouTube channel comment campaign",
+        )
+        repository.save_batch(batch)
+        job = Job(
+            name="YouTube channel comment campaign",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+        collection = Collection(
+            name="YouTube Comment Evidence",
+            description="Public YouTube comments preserved by Warrigal.",
+        )
+        repository.save_collection(collection)
+
+        result = run_youtube_comment_campaign(
+            channel_url,
+            target_author_id=target_author_id,
+            target_author_handle=target_author_handle,
+            checkpoint_path=checkpoint_path,
+            scan_videos=scan_videos,
+            max_videos=max_videos,
+            max_comments=max_comments,
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+        )
+
+        print("=== WARRIGAL YOUTUBE COMMENT CAMPAIGN ===")
+        print(f"CHANNEL:        {channel_url}")
+        print(f"TARGET ID:      {target_author_id}")
+        print(f"CHECKPOINT:     {Path(checkpoint_path).expanduser().resolve()}")
+        for item in result.items:
+            if item.status in {"completed", "failed"}:
+                print(
+                    f"{item.status:20} "
+                    f"matches={item.matched_count:<4} "
+                    f"context={item.context_count:<4} "
+                    f"{item.url}"
+                )
+                if item.error:
+                    print(f"  ERROR: {item.error}")
+
+        print("=== CAMPAIGN RUN COMPLETE ===")
+        print(f"DISCOVERED:     {result.discovered_count}")
+        print(f"SELECTED:       {result.selected_count}")
+        print(f"COMPLETED:      {result.completed_count}")
+        print(f"FAILED:         {result.failed_count}")
+        print(f"TARGET MATCHES: {result.matched_count}")
+        print(f"THREAD CONTEXT: {result.context_count}")
+        if result.selected_count == 0:
+            print("NO UNFINISHED VIDEOS IN SCANNED RANGE")
+        return 1 if result.failed_count else 0
     finally:
         db.close()
 
@@ -1121,6 +1250,17 @@ def main() -> int:
             args.url,
             target_author_id=args.target_author_id,
             target_author_handle=args.target_author_handle,
+            max_comments=args.max_comments,
+        )
+
+    if args.command == "ingest-youtube-channel-comments":
+        return run_ingest_youtube_channel_comments(
+            args.channel,
+            target_author_id=args.target_author_id,
+            target_author_handle=args.target_author_handle,
+            checkpoint_path=args.checkpoint,
+            scan_videos=args.scan_videos,
+            max_videos=args.max_videos,
             max_comments=args.max_comments,
         )
 

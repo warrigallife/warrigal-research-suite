@@ -272,6 +272,22 @@ class WarrigalRepository:
         )
         self.connection.commit()
 
+    def get_passages_for_object(
+        self,
+        object_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return persistent passages attached to one archived object."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM passages
+            WHERE object_id = ?
+            ORDER BY passage_index, created_at, passage_id
+            """,
+            (object_id,),
+        ).fetchall()
+
     def save_visual_observation(self, observation) -> None:
         """Persist a derived visual observation."""
 

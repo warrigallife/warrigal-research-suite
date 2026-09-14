@@ -41,6 +41,8 @@ class YouTubeCommentIngestionResult:
     sha256: str
     collected_count: int
     matched_count: int
+    context_count: int
+    indexed_count: int
     match_basis: str
     matched_author_ids: tuple[str, ...]
     target_author_id: str | None
@@ -155,6 +157,36 @@ def _comment_match_basis(
     return None
 
 
+def select_target_thread_context(
+    comments: list[YouTubeComment],
+    matches: list[tuple[YouTubeComment, str]],
+) -> list[tuple[YouTubeComment, str, str | None]]:
+    """Select target comments plus available parents and direct replies."""
+
+    target_basis = {
+        comment.comment_id: basis
+        for comment, basis in matches
+    }
+    target_ids = set(target_basis)
+    parent_ids = {
+        comment.parent_id
+        for comment, _ in matches
+        if comment.parent_id not in {None, "root"}
+    }
+
+    selected: list[tuple[YouTubeComment, str, str | None]] = []
+    for comment in comments:
+        if comment.comment_id in target_ids:
+            selected.append(
+                (comment, "target_author", target_basis[comment.comment_id])
+            )
+        elif comment.comment_id in parent_ids:
+            selected.append((comment, "parent_context", None))
+        elif comment.parent_id in target_ids:
+            selected.append((comment, "reply_context", None))
+    return selected
+
+
 def ingest_youtube_comments(
     video_url: str,
     *,
@@ -195,6 +227,7 @@ def ingest_youtube_comments(
             )
         )
     ]
+    selected_comments = select_target_thread_context(comments, matches)
 
     snapshot = {
         "schema": "warrigal.youtube-comments.v1",
@@ -244,32 +277,53 @@ def ingest_youtube_comments(
         },
     )
 
-    if not repository.object_has_passages(acquisition.object_id):
-        for index, (comment, basis) in enumerate(matches):
-            repository.save_passage(
-                Passage(
-                    object_id=acquisition.object_id,
-                    acquisition_id=acquisition.acquisition_id,
-                    passage_index=index,
-                    text=comment.text,
-                    source_url=(
-                        f"{final_url}&lc={comment.comment_id}"
-                        if "?" in final_url
-                        else f"{final_url}?lc={comment.comment_id}"
+    existing_rows = repository.get_passages_for_object(acquisition.object_id)
+    existing_comment_ids: set[str] = set()
+    next_passage_index = 0
+    for row in existing_rows:
+        next_passage_index = max(next_passage_index, row["passage_index"] + 1)
+        try:
+            existing_metadata = json.loads(row["metadata_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        comment_id = existing_metadata.get("comment_id")
+        if comment_id is not None:
+            existing_comment_ids.add(str(comment_id))
+
+    indexed_count = 0
+    for comment, context_role, basis in selected_comments:
+        if comment.comment_id in existing_comment_ids:
+            continue
+        repository.save_passage(
+            Passage(
+                object_id=acquisition.object_id,
+                acquisition_id=acquisition.acquisition_id,
+                passage_index=next_passage_index,
+                text=comment.text,
+                source_url=(
+                    f"{final_url}&lc={comment.comment_id}"
+                    if "?" in final_url
+                    else f"{final_url}?lc={comment.comment_id}"
+                ),
+                source_title=video_title,
+                metadata={
+                    **asdict(comment),
+                    "video_id": video_id,
+                    "context_role": context_role,
+                    "match_basis": basis,
+                    "evidence_status": (
+                        "explicit_identity"
+                        if basis == "author_id"
+                        else "provisional_identity"
+                        if basis == "author_handle_provisional"
+                        else "context_only"
                     ),
-                    source_title=video_title,
-                    metadata={
-                        **asdict(comment),
-                        "video_id": video_id,
-                        "match_basis": basis,
-                        "evidence_status": (
-                            "explicit_identity"
-                            if basis == "author_id"
-                            else "provisional_identity"
-                        ),
-                    },
-                )
+                },
             )
+        )
+        existing_comment_ids.add(comment.comment_id)
+        next_passage_index += 1
+        indexed_count += 1
 
     bases = {basis for _, basis in matches}
     match_basis = (
@@ -287,6 +341,8 @@ def ingest_youtube_comments(
         sha256=acquisition.sha256,
         collected_count=len(comments),
         matched_count=len(matches),
+        context_count=len(selected_comments) - len(matches),
+        indexed_count=indexed_count,
         match_basis=match_basis,
         matched_author_ids=tuple(sorted({
             comment.author_id
