@@ -24,11 +24,15 @@ Rules:
 1. Distinguish real visual change from differences in wording.
 2. Identify appearances, disappearances, movement, position changes,
    colour changes, shape changes, scale changes, and scene cuts.
-3. Do not infer movement when only two static samples are available.
-4. If geometry differs but direction or animation is uncertain, say so.
-5. Transcribe changed or persistent readable text when relevant.
-6. State explicitly when no definite change is visible.
-7. Do not invent content outside the two frames.
+3. APPEARED means wholly absent before and visibly present afterward.
+4. DISAPPEARED means visibly present before and absent afterward.
+5. An evolving version of the same object belongs under SHAPE SCALE OR
+   COLOUR CHANGE, not APPEARED or DISAPPEARED.
+6. Do not infer continuous movement from only two static samples.
+7. If geometry differs but the intervening animation is unknown, say so.
+8. Transcribe changed or persistent readable text when relevant.
+9. State explicitly when no definite change is visible.
+10. Do not invent content outside the two frames.
 
 Return exactly these headings:
 TRANSITION SUMMARY
