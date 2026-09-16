@@ -340,6 +340,149 @@ class WarrigalRepository:
             (frame_object_id,),
         ).fetchall()
 
+    def save_visual_transition(self, transition) -> None:
+        """Persist a comparison between two archived video frames."""
+
+        self.connection.execute(
+            """
+            INSERT INTO visual_transitions (
+                transition_id,
+                video_object_id,
+                start_frame_object_id,
+                start_frame_acquisition_id,
+                start_timestamp_ms,
+                end_frame_object_id,
+                end_frame_acquisition_id,
+                end_timestamp_ms,
+                text,
+                analyser,
+                analyser_version,
+                status,
+                confidence,
+                metadata_json,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                transition.transition_id,
+                transition.video_object_id,
+                transition.start_frame_object_id,
+                transition.start_frame_acquisition_id,
+                transition.start_timestamp_ms,
+                transition.end_frame_object_id,
+                transition.end_frame_acquisition_id,
+                transition.end_timestamp_ms,
+                transition.text,
+                transition.analyser,
+                transition.analyser_version,
+                transition.status,
+                transition.confidence,
+                json.dumps(transition.metadata),
+                transition.created_at.isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def get_visual_transitions_for_video(
+        self,
+        video_object_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return ordered visual transitions for one video."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM visual_transitions
+            WHERE video_object_id = ?
+            ORDER BY
+                start_timestamp_ms,
+                end_timestamp_ms,
+                created_at,
+                transition_id
+            """,
+            (video_object_id,),
+        ).fetchall()
+
+    def get_visual_transition_for_pair(
+        self,
+        *,
+        video_object_id: str,
+        start_frame_object_id: str,
+        end_frame_object_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return preserved analyses for one adjacent frame pair."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM visual_transitions
+            WHERE video_object_id = ?
+              AND start_frame_object_id = ?
+              AND end_frame_object_id = ?
+            ORDER BY created_at, transition_id
+            """,
+            (
+                video_object_id,
+                start_frame_object_id,
+                end_frame_object_id,
+            ),
+        ).fetchall()
+
+    def save_video_temporal_synthesis(self, synthesis) -> None:
+        """Persist a derived video-level temporal synthesis."""
+
+        self.connection.execute(
+            """
+            INSERT INTO video_temporal_syntheses (
+                synthesis_id,
+                video_object_id,
+                video_acquisition_id,
+                text,
+                frame_count,
+                observation_ids_json,
+                timeline_json,
+                analyser,
+                analyser_version,
+                status,
+                metadata_json,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                synthesis.synthesis_id,
+                synthesis.video_object_id,
+                synthesis.video_acquisition_id,
+                synthesis.text,
+                synthesis.frame_count,
+                json.dumps(synthesis.observation_ids),
+                json.dumps(synthesis.timeline),
+                synthesis.analyser,
+                synthesis.analyser_version,
+                synthesis.status,
+                json.dumps(synthesis.metadata),
+                synthesis.created_at.isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def get_video_temporal_syntheses(
+        self,
+        video_object_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return temporal syntheses for one archived video."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM video_temporal_syntheses
+            WHERE video_object_id = ?
+            ORDER BY created_at, synthesis_id
+            """,
+            (video_object_id,),
+        ).fetchall()
+
     def save_storage_location(self, storage: StorageLocation) -> None:
         """Record where an object's bytes are stored."""
 

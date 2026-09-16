@@ -141,3 +141,44 @@ class VisualObservation:
     metadata: dict[str, Any] = field(default_factory=dict)
     observation_id: str = field(default_factory=lambda: new_id("OBS"))
     created_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class VisualTransition:
+    """A derived comparison between two archived video frames."""
+
+    video_object_id: str
+    start_frame_object_id: str
+    start_frame_acquisition_id: str
+    start_timestamp_ms: int
+    end_frame_object_id: str
+    end_frame_acquisition_id: str
+    end_timestamp_ms: int
+    text: str
+    analyser: str
+    analyser_version: str | None = None
+    status: str = "derived_unreviewed"
+    confidence: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    transition_id: str = field(
+        default_factory=lambda: new_id("TRANS")
+    )
+    created_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class VideoTemporalSynthesis:
+    """A derived account of change across ordered video frames."""
+
+    video_object_id: str
+    video_acquisition_id: str
+    text: str
+    frame_count: int
+    observation_ids: list[str]
+    timeline: list[dict[str, Any]]
+    analyser: str = "warrigal-temporal-comparator"
+    analyser_version: str | None = "1"
+    status: str = "derived_unreviewed"
+    metadata: dict[str, Any] = field(default_factory=dict)
+    synthesis_id: str = field(default_factory=lambda: new_id("SYN"))
+    created_at: datetime = field(default_factory=utc_now)

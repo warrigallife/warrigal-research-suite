@@ -170,6 +170,64 @@ ON visual_observations(frame_object_id);
 
 CREATE INDEX IF NOT EXISTS idx_visual_observations_acquisition
 ON visual_observations(frame_acquisition_id);
+
+CREATE TABLE IF NOT EXISTS visual_transitions (
+    transition_id TEXT PRIMARY KEY,
+    video_object_id TEXT NOT NULL,
+    start_frame_object_id TEXT NOT NULL,
+    start_frame_acquisition_id TEXT NOT NULL,
+    start_timestamp_ms INTEGER NOT NULL,
+    end_frame_object_id TEXT NOT NULL,
+    end_frame_acquisition_id TEXT NOT NULL,
+    end_timestamp_ms INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    analyser TEXT NOT NULL,
+    analyser_version TEXT,
+    status TEXT NOT NULL,
+    confidence REAL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (video_object_id) REFERENCES objects(object_id),
+    FOREIGN KEY (start_frame_object_id) REFERENCES objects(object_id),
+    FOREIGN KEY (start_frame_acquisition_id)
+        REFERENCES acquisitions(acquisition_id),
+    FOREIGN KEY (end_frame_object_id) REFERENCES objects(object_id),
+    FOREIGN KEY (end_frame_acquisition_id)
+        REFERENCES acquisitions(acquisition_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_visual_transitions_video
+ON visual_transitions(video_object_id);
+
+CREATE INDEX IF NOT EXISTS idx_visual_transitions_frames
+ON visual_transitions(
+    start_frame_object_id,
+    end_frame_object_id
+);
+
+CREATE TABLE IF NOT EXISTS video_temporal_syntheses (
+    synthesis_id TEXT PRIMARY KEY,
+    video_object_id TEXT NOT NULL,
+    video_acquisition_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    frame_count INTEGER NOT NULL,
+    observation_ids_json TEXT NOT NULL,
+    timeline_json TEXT NOT NULL,
+    analyser TEXT NOT NULL,
+    analyser_version TEXT,
+    status TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (video_object_id) REFERENCES objects(object_id),
+    FOREIGN KEY (video_acquisition_id)
+        REFERENCES acquisitions(acquisition_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_temporal_syntheses_object
+ON video_temporal_syntheses(video_object_id);
+
+CREATE INDEX IF NOT EXISTS idx_video_temporal_syntheses_acquisition
+ON video_temporal_syntheses(video_acquisition_id);
 """
 
 
