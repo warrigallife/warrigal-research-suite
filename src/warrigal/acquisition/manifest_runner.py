@@ -10,7 +10,7 @@ from warrigal.acquisition.manifest import CollectionManifest, ManifestResource
 
 ResourceHandler = Callable[[ManifestResource], Mapping[str, Any] | None]
 
-_SUCCESS_STATUSES = {"acquired", "archived"}
+_SUCCESS_STATUSES = {"acquired", "archived", "alternate_recovered"}
 
 
 def is_successful_checkpoint_record(
@@ -110,6 +110,7 @@ def run_collection_manifest(
     *,
     pdf_handler: ResourceHandler | None = None,
     zip_handler: ResourceHandler | None = None,
+    document_handler: ResourceHandler | None = None,
     checkpoint_path: str | Path | None = None,
 ) -> ManifestRunResult:
     """
@@ -174,6 +175,15 @@ def run_collection_manifest(
             handler = zip_handler
             success_status = "archived"
             action = "zip_archive"
+        elif resource.media_type in {
+            "application/msword",
+            "text/plain",
+            "text/csv",
+            "image/vnd.djvu",
+        }:
+            handler = document_handler
+            success_status = "acquired"
+            action = "document_acquisition"
         else:
             handler = None
             success_status = "needs_review"

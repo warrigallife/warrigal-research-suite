@@ -1270,6 +1270,7 @@ def run_acquire_manifest(
 
     from warrigal.acquisition.manifest import CollectionManifest
     from warrigal.acquisition.manifest_adapters import (
+        make_generic_document_manifest_handler,
         make_pdf_manifest_handler,
         make_web_archive_manifest_handler,
     )
@@ -1338,6 +1339,19 @@ def run_acquire_manifest(
             fetcher=fetcher,
         )
 
+        document_handler = (
+            make_generic_document_manifest_handler(
+                repository=repository,
+                object_store=object_store,
+                job_id=job.job_id,
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+                collection_id=collection.collection_id,
+                discovery_metadata=discovery_metadata,
+                fetcher=fetcher,
+            )
+        )
+
         zip_handler = make_web_archive_manifest_handler(
             repository=repository,
             object_store=object_store,
@@ -1353,6 +1367,7 @@ def run_acquire_manifest(
             manifest,
             pdf_handler=pdf_handler,
             zip_handler=zip_handler,
+            document_handler=document_handler,
             checkpoint_path=checkpoint_file,
             max_resources=max_resources,
             max_resource_bytes=max_resource_bytes,

@@ -115,6 +115,7 @@ def run_manifest_campaign(
     *,
     pdf_handler: ResourceHandler | None = None,
     zip_handler: ResourceHandler | None = None,
+    document_handler: ResourceHandler | None = None,
     checkpoint_path: Path | None = None,
     max_resources: int | None = None,
     max_resource_bytes: int | None = None,
@@ -153,6 +154,7 @@ def run_manifest_campaign(
         campaign_manifest,
         pdf_handler=pdf_handler,
         zip_handler=zip_handler,
+        document_handler=document_handler,
         checkpoint_path=checkpoint_path,
     )
 

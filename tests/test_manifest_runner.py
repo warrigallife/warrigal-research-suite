@@ -108,7 +108,7 @@ class ManifestRunnerTests(unittest.TestCase):
     def test_unsupported_resource_requires_review(self):
         resource = self.resource(
             "notes.txt",
-            "text/plain",
+            "application/octet-stream",
         )
 
         result = run_collection_manifest(
