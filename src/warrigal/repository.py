@@ -429,6 +429,62 @@ class WarrigalRepository:
             ),
         ).fetchall()
 
+    def save_video_motion_synthesis(self, synthesis) -> None:
+        """Persist a video-level synthesis of direct transitions."""
+
+        self.connection.execute(
+            """
+            INSERT INTO video_motion_syntheses (
+                synthesis_id,
+                video_object_id,
+                video_acquisition_id,
+                text,
+                start_timestamp_ms,
+                end_timestamp_ms,
+                transition_ids_json,
+                timeline_json,
+                analyser,
+                analyser_version,
+                status,
+                metadata_json,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                synthesis.synthesis_id,
+                synthesis.video_object_id,
+                synthesis.video_acquisition_id,
+                synthesis.text,
+                synthesis.start_timestamp_ms,
+                synthesis.end_timestamp_ms,
+                json.dumps(synthesis.transition_ids),
+                json.dumps(synthesis.timeline),
+                synthesis.analyser,
+                synthesis.analyser_version,
+                synthesis.status,
+                json.dumps(synthesis.metadata),
+                synthesis.created_at.isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def get_video_motion_syntheses(
+        self,
+        video_object_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return motion syntheses for one archived video."""
+
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM video_motion_syntheses
+            WHERE video_object_id = ?
+            ORDER BY created_at, synthesis_id
+            """,
+            (video_object_id,),
+        ).fetchall()
+
     def save_video_temporal_synthesis(self, synthesis) -> None:
         """Persist a derived video-level temporal synthesis."""
 

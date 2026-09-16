@@ -205,6 +205,28 @@ ON visual_transitions(
     end_frame_object_id
 );
 
+CREATE TABLE IF NOT EXISTS video_motion_syntheses (
+    synthesis_id TEXT PRIMARY KEY,
+    video_object_id TEXT NOT NULL,
+    video_acquisition_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    start_timestamp_ms INTEGER NOT NULL,
+    end_timestamp_ms INTEGER NOT NULL,
+    transition_ids_json TEXT NOT NULL,
+    timeline_json TEXT NOT NULL,
+    analyser TEXT NOT NULL,
+    analyser_version TEXT,
+    status TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (video_object_id) REFERENCES objects(object_id),
+    FOREIGN KEY (video_acquisition_id)
+        REFERENCES acquisitions(acquisition_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_motion_syntheses_object
+ON video_motion_syntheses(video_object_id);
+
 CREATE TABLE IF NOT EXISTS video_temporal_syntheses (
     synthesis_id TEXT PRIMARY KEY,
     video_object_id TEXT NOT NULL,

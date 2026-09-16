@@ -167,6 +167,27 @@ class VisualTransition:
 
 
 @dataclass
+class VideoMotionSynthesis:
+    """A derived account built from direct adjacent-frame comparisons."""
+
+    video_object_id: str
+    video_acquisition_id: str
+    text: str
+    start_timestamp_ms: int
+    end_timestamp_ms: int
+    transition_ids: list[str]
+    timeline: list[dict[str, Any]]
+    analyser: str
+    analyser_version: str | None = None
+    status: str = "derived_unreviewed"
+    metadata: dict[str, Any] = field(default_factory=dict)
+    synthesis_id: str = field(
+        default_factory=lambda: new_id("MOTION")
+    )
+    created_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
 class VideoTemporalSynthesis:
     """A derived account of change across ordered video frames."""
 
