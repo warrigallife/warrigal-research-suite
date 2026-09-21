@@ -98,6 +98,17 @@ class YouTubeCommentIndexTests(unittest.TestCase):
         self.assertEqual(second.passages_created, 0)
         self.assertEqual(len(self.repository.list_passages()), 2)
 
+    def test_indexer_can_limit_work_to_channel_inventory_urls(self):
+        result = index_archived_youtube_comments(
+            repository=self.repository,
+            object_store=self.object_store,
+            source_urls={"https://www.youtube.com/watch?v=another-video"},
+        )
+
+        self.assertEqual(result.snapshots_indexed, 0)
+        self.assertEqual(result.comments_seen, 0)
+        self.assertEqual(result.passages_created, 0)
+
     def test_author_directory_uses_stable_ids_and_known_handles(self):
         index_archived_youtube_comments(
             repository=self.repository,

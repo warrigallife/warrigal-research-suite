@@ -140,7 +140,51 @@ class YouTubeChannelWorkflowTests(unittest.TestCase):
             )
             self.assertEqual(result.failed_count, 0)
             self.assertEqual(result.unavailable_transcript_count, 1)
+            self.assertEqual(result.acquired_transcript_count, 0)
             self.assertEqual(result.completed_count, 1)
+
+    def test_reports_acquired_transcripts_post_counts_and_index_scope(self):
+        video = _YouTubeVideo("one", "One", "https://youtu.be/one")
+        with tempfile.TemporaryDirectory() as directory:
+            result = WORKFLOW.run_youtube_channel_workflow(
+                "https://youtube.com/@example",
+                checkpoint_path=Path(directory) / "channel.json",
+                posts_checkpoint_path=Path(directory) / "posts.json",
+                stages=("transcripts", "posts", "index"),
+                repository=object(), object_store=object(),
+                job_id="j", node_id="n", batch_id="b", collection_id="c",
+                discoverer=lambda *_a, **_k: [video],
+                inventory_preserver=lambda *_a, **_k: _acquisition(),
+                transcript_ingestor=lambda *_a, **_k: _acquisition(),
+                comment_preserver=lambda *_a, **_k: _acquisition(),
+                posts_ingestor=lambda *_a, **_k: _acquisition(
+                    collected_count=0, new_count=0, deduplicated=True
+                ),
+                comment_indexer=lambda **_k: SimpleNamespace(passages_created=3),
+            )
+
+            self.assertEqual(result.acquired_transcript_count, 1)
+            self.assertEqual(result.community_posts_collected, 0)
+            self.assertEqual(result.community_posts_new, 0)
+            self.assertTrue(result.community_posts_deduplicated)
+            self.assertEqual(result.comment_index_scope, "channel_inventory")
+
+    def test_checkpoint_accepts_canonical_videos_tab_for_same_channel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = WORKFLOW.YouTubeChannelCheckpointStore(
+                Path(directory) / "checkpoint.json"
+            )
+            payload = store.load("https://www.youtube.com/channel/UC123")
+            store.save(payload)
+
+            loaded = store.load(
+                "https://www.youtube.com/channel/UC123/videos"
+            )
+
+            self.assertEqual(
+                loaded["channel_url"],
+                "https://www.youtube.com/channel/UC123/videos",
+            )
 
     def test_checkpoint_rejects_different_channel(self):
         with tempfile.TemporaryDirectory() as directory:

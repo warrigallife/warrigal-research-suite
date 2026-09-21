@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from warrigal.acquisition.crawler import WebCrawler
 from warrigal.acquisition.content import (
     extract_html_content,
@@ -12,7 +13,7 @@ from warrigal.acquisition.service import AcquisitionService
 from warrigal.audio_cli import run_ingest_audio
 from warrigal.video_cli import run_ingest_video
 from warrigal.youtube_media_cli import run_ingest_youtube_media
-from warrigal.acquisition.youtube import ingest_video_transcript
+from warrigal.acquisition.youtube import ingest_video_transcript, resolve_youtube_channel
 from warrigal.acquisition.youtube_comments import ingest_youtube_comments
 from warrigal.acquisition.youtube_comment_campaign import (
     run_youtube_comment_campaign,
@@ -1117,6 +1118,16 @@ def run_ingest_youtube_channel(
 ) -> int:
     """Preserve a channel inventory, transcripts, comments, and posts."""
 
+    try:
+        identity = resolve_youtube_channel(channel_url)
+    except ValueError as exc:
+        print("=== WARRIGAL YOUTUBE CHANNEL ERROR ===")
+        print(f"SOURCE: {channel_url}")
+        print(f"ERROR:  {exc}")
+        print("NO WORKFLOW RECORDS WERE CREATED")
+        return 1
+
+    channel_url = identity.canonical_url
     db = initialize_database()
     repository = WarrigalRepository(db)
     try:
@@ -1155,15 +1166,22 @@ def run_ingest_youtube_channel(
         )
         print("=== WARRIGAL YOUTUBE CHANNEL WORKFLOW ===")
         print(f"CHANNEL:                 {result.channel_url}")
+        print(f"CHANNEL ID:              {identity.channel_id}")
+        print(f"CHANNEL NAME:            {identity.title}")
         print(f"INVENTORY OBJECT:        {result.inventory_object_id}")
         print(f"VIDEOS DISCOVERED:       {result.discovered_count}")
         print(f"VIDEOS SELECTED:         {result.selected_count}")
         print(f"VIDEOS COMPLETED:        {result.completed_count}")
         print(f"VIDEOS FAILED:           {result.failed_count}")
         print(f"TRANSCRIPTS UNAVAILABLE: {result.unavailable_transcript_count}")
+        print(f"TRANSCRIPTS ACQUIRED:    {result.acquired_transcript_count}")
         print(f"COMMENTS PRESERVED:      {result.comments_collected}")
         print(f"COMMENT PASSAGES ADDED:  {result.indexed_comment_count}")
+        print(f"COMMENT INDEX SCOPE:     {result.comment_index_scope}")
         print(f"COMMUNITY POSTS:         {result.community_posts_status}")
+        print(f"POSTS COLLECTED:         {result.community_posts_collected}")
+        print(f"POSTS NEW:               {result.community_posts_new}")
+        print(f"POST SNAPSHOT REUSED:    {result.community_posts_deduplicated}")
         print(f"CHECKPOINT:              {Path(checkpoint_path).expanduser().resolve()}")
         failed = result.failed_count or (
             "posts" in tuple(stages or ("transcripts", "comments", "posts", "index"))
@@ -1537,6 +1555,15 @@ def run_search(
         print(f"TITLE FAMILY:   {', '.join(result.title_family_matched_terms)}")
         print(f"TITLE:          {result.passage.source_title}")
         print(f"SOURCE:         {result.passage.source_url}")
+        source_url = result.passage.source_url or ""
+        parsed_source = urlparse(source_url)
+        video_id = parse_qs(parsed_source.query).get("v", [None])[0]
+        evidence_group = (
+            f"youtube-video:{video_id}"
+            if video_id and "youtube.com" in parsed_source.netloc
+            else f"object:{result.passage.object_id}"
+        )
+        print(f"EVIDENCE GROUP: {evidence_group}")
         print(f"OBJECT:         {result.passage.object_id}")
         print(f"ACQUISITION:    {result.passage.acquisition_id}")
         print(

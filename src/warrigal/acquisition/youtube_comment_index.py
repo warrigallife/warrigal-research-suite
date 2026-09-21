@@ -48,8 +48,9 @@ def index_archived_youtube_comments(
     *,
     repository: WarrigalRepository,
     object_store: ObjectStore,
+    source_urls: set[str] | None = None,
 ) -> YouTubeCommentIndexResult:
-    """Index every unique comment from locally archived comment snapshots."""
+    """Index unique comments, optionally limited to selected video URLs."""
 
     acquisitions = repository.list_acquisitions_by_method(
         "youtube_comments_ytdlp"
@@ -107,6 +108,8 @@ def index_archived_youtube_comments(
         video_url = str(video.get("url") or "")
         if not video_id or not video_url:
             invalid_snapshots += 1
+            continue
+        if source_urls is not None and video_url not in source_urls:
             continue
         snapshots_indexed += 1
 

@@ -29,6 +29,15 @@ Discoverer = Callable[..., list[YouTubeVideo]]
 StageCallable = Callable[..., Any]
 
 
+def _channel_checkpoint_key(channel_url: object) -> str:
+    """Treat canonical channel roots and their /videos tab as one channel."""
+
+    value = str(channel_url or "").strip().rstrip("/")
+    if value.endswith("/videos"):
+        value = value[:-7].rstrip("/")
+    return value
+
+
 @dataclass(frozen=True)
 class YouTubeChannelWorkflowItem:
     video_id: str
@@ -48,9 +57,14 @@ class YouTubeChannelWorkflowResult:
     completed_count: int
     failed_count: int
     unavailable_transcript_count: int
+    acquired_transcript_count: int
     comments_collected: int
     community_posts_status: str
+    community_posts_collected: int
+    community_posts_new: int
+    community_posts_deduplicated: bool | None
     indexed_comment_count: int
+    comment_index_scope: str
     items: tuple[YouTubeChannelWorkflowItem, ...]
 
 
@@ -75,8 +89,11 @@ class YouTubeChannelCheckpointStore:
             raise ValueError("YouTube channel checkpoint must be an object")
         if payload.get("schema") != self.schema:
             raise ValueError("Unsupported YouTube channel checkpoint schema")
-        if payload.get("channel_url") != channel_url:
+        if _channel_checkpoint_key(
+            payload.get("channel_url")
+        ) != _channel_checkpoint_key(channel_url):
             raise ValueError("Checkpoint belongs to a different channel")
+        payload["channel_url"] = channel_url
         if not isinstance(payload.get("videos"), dict):
             raise ValueError("Checkpoint videos must be an object")
         payload.setdefault("community_posts", {"status": "pending"})
@@ -310,6 +327,7 @@ def run_youtube_channel_workflow(
                 "acquisition_id": posts.acquisition_id,
                 "collected_count": posts.collected_count,
                 "new_count": posts.new_count,
+                "deduplicated": getattr(posts, "deduplicated", None),
             }
             posts_status = "completed"
         except Exception as exc:
@@ -325,6 +343,7 @@ def run_youtube_channel_workflow(
         index_result = comment_indexer(
             repository=repository,
             object_store=object_store,
+            source_urls={video.url for video in videos},
         )
         indexed_comment_count = int(index_result.passages_created)
 
@@ -365,11 +384,26 @@ def run_youtube_channel_workflow(
         unavailable_transcript_count=sum(
             item.transcript_status == "unavailable" for item in items
         ),
+        acquired_transcript_count=sum(
+            item.transcript_status == "completed" for item in items
+        ),
         comments_collected=sum(
             int(record.get("comments", {}).get("collected_count", 0))
             for record in records.values()
         ),
         community_posts_status=posts_status,
+        community_posts_collected=int(
+            checkpoint.get("community_posts", {}).get("collected_count", 0)
+        ),
+        community_posts_new=int(
+            checkpoint.get("community_posts", {}).get("new_count", 0)
+        ),
+        community_posts_deduplicated=(
+            checkpoint.get("community_posts", {}).get("deduplicated")
+        ),
         indexed_comment_count=indexed_comment_count,
+        comment_index_scope=(
+            "channel_inventory" if "index" in stages else "not_run"
+        ),
         items=tuple(items),
     )

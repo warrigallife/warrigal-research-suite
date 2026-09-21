@@ -71,6 +71,50 @@ class YouTubeVideo:
 
 
 @dataclass(frozen=True)
+class YouTubeChannelIdentity:
+    channel_id: str
+    title: str
+    canonical_url: str
+
+
+def resolve_youtube_channel(source_url: str) -> YouTubeChannelIdentity:
+    """Resolve a channel, handle, or video URL to stable channel identity."""
+    if not source_url.strip():
+        raise ValueError("YouTube source URL is required")
+    options = {
+        "extract_flat": True, "quiet": True, "no_warnings": True,
+        "skip_download": True, "playlistend": 1,
+        "js_runtimes": {"deno": {}},
+    }
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            info = ydl.extract_info(source_url, download=False)
+    except Exception as exc:
+        raise ValueError(
+            f"YouTube could not resolve channel identity for {source_url}: {exc}"
+        ) from exc
+    if not isinstance(info, dict):
+        raise ValueError(f"YouTube returned no channel information for {source_url}")
+    channel_id = str(info.get("channel_id") or "")
+    title = str(info.get("channel") or info.get("channel_title") or "")
+    if not channel_id and str(info.get("_type") or "") in {"playlist", "channel"}:
+        channel_id = str(info.get("id") or "")
+        title = title or str(info.get("title") or "")
+    if not channel_id:
+        entries = info.get("entries") or []
+        first = next((entry for entry in entries if isinstance(entry, dict)), {})
+        channel_id = str(first.get("channel_id") or "")
+        title = title or str(first.get("channel") or "")
+    if not channel_id:
+        raise ValueError(f"YouTube source did not expose a stable channel ID: {source_url}")
+    return YouTubeChannelIdentity(
+        channel_id=channel_id,
+        title=title or channel_id,
+        canonical_url=f"https://www.youtube.com/channel/{channel_id}/videos",
+    )
+
+
+@dataclass(frozen=True)
 class YouTubeTranscriptSegment:
     start_ms: int
     duration_ms: int | None
@@ -111,6 +155,7 @@ def discover_channel_videos(
         "extract_flat": True,
         "quiet": True,
         "no_warnings": True,
+        "js_runtimes": {"deno": {}},
     }
 
     if max_videos is not None:
@@ -152,6 +197,7 @@ def extract_video_metadata(video_url: str) -> YouTubeVideoMetadata:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
+        "js_runtimes": {"deno": {}},
     }
 
     with yt_dlp.YoutubeDL(options) as ydl:
@@ -202,6 +248,7 @@ def acquire_json3_transcript(
         "writeautomaticsub": True,
         "subtitleslangs": [language],
         "subtitlesformat": "json3",
+        "js_runtimes": {"deno": {}},
     }
 
     with yt_dlp.YoutubeDL(options) as ydl:
@@ -582,4 +629,3 @@ def transcript_units_to_passages(
         )
         for index, unit in enumerate(units)
     ]
-

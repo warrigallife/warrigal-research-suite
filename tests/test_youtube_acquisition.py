@@ -4,11 +4,44 @@ from unittest.mock import MagicMock, patch
 from unittest.mock import MagicMock, patch
 
 from warrigal.acquisition.youtube import discover_channel_videos
+from warrigal.acquisition.youtube import resolve_youtube_channel
 from warrigal.acquisition.youtube import extract_description_references
 from warrigal.acquisition.youtube import extract_description_urls
 
 
 class YouTubeAcquisitionTests(unittest.TestCase):
+
+    @patch("warrigal.acquisition.youtube.yt_dlp.YoutubeDL")
+    def test_resolves_video_to_canonical_channel_identity(self, youtube_dl):
+        ydl = MagicMock()
+        youtube_dl.return_value.__enter__.return_value = ydl
+        ydl.extract_info.return_value = {
+            "id": "video001",
+            "channel": "Test Channel",
+            "channel_id": "UC-STABLE",
+        }
+
+        identity = resolve_youtube_channel(
+            "https://www.youtube.com/watch?v=video001"
+        )
+
+        self.assertEqual(identity.channel_id, "UC-STABLE")
+        self.assertEqual(identity.title, "Test Channel")
+        self.assertEqual(
+            identity.canonical_url,
+            "https://www.youtube.com/channel/UC-STABLE/videos",
+        )
+
+    @patch("warrigal.acquisition.youtube.yt_dlp.YoutubeDL")
+    def test_channel_resolution_failure_is_concise(self, youtube_dl):
+        ydl = MagicMock()
+        youtube_dl.return_value.__enter__.return_value = ydl
+        ydl.extract_info.side_effect = RuntimeError("remote 404")
+
+        with self.assertRaisesRegex(
+            ValueError, "could not resolve channel identity"
+        ):
+            resolve_youtube_channel("https://www.youtube.com/@missing")
 
     def test_extract_description_references_preserve_positions(self):
         description = (
