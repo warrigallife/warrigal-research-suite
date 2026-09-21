@@ -16,7 +16,12 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from warrigal.config import CONFIG
-from warrigal.workflows import actions_for, build_workflow_plan, safe_name
+from warrigal.workflows import (
+    YOUTUBE_ACTION_HELP,
+    actions_for,
+    build_workflow_plan,
+    safe_name,
+)
 
 
 ARCHIVE_ROOT = CONFIG.archive_root
@@ -44,8 +49,22 @@ def build_instagram_commands(
     ).panel_commands()
 
 
-def build_youtube_commands(target: str, action: str) -> list[tuple[str, list[str]]]:
-    return build_workflow_plan("YouTube", target, action).panel_commands()
+def build_youtube_commands(
+    target: str,
+    action: str,
+    *,
+    max_videos: int = 0,
+    max_comments: int = 0,
+    max_posts: int = 1000,
+) -> list[tuple[str, list[str]]]:
+    return build_workflow_plan(
+        "YouTube",
+        target,
+        action,
+        youtube_max_videos=max_videos,
+        youtube_max_comments=max_comments,
+        youtube_max_posts=max_posts,
+    ).panel_commands()
 
 
 def build_website_commands(target: str, action: str) -> list[tuple[str, list[str]]]:
@@ -63,6 +82,10 @@ class SourcePanel(tk.Tk):
         self.target = tk.StringVar()
         self.action = tk.StringVar(value="Complete workflow")
         self.delay = tk.StringVar(value="3")
+        self.youtube_max_videos = tk.StringVar(value="0")
+        self.youtube_max_comments = tk.StringVar(value="0")
+        self.youtube_max_posts = tk.StringVar(value="1000")
+        self.action_help = tk.StringVar()
         self.status = tk.StringVar(value="Ready")
         self.process: subprocess.Popen[str] | None = None
         self.events: queue.Queue[tuple[str, str | int]] = queue.Queue()
@@ -103,10 +126,33 @@ class SourcePanel(tk.Tk):
         ttk.Label(form, text="Action").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=6)
         self.action_box = ttk.Combobox(form, textvariable=self.action, state="readonly")
         self.action_box.grid(row=2, column=1, sticky="ew", pady=6)
+        self.action_box.bind(
+            "<<ComboboxSelected>>", lambda _event: self._action_changed()
+        )
 
-        ttk.Label(form, text="Delay (seconds)").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=6)
+        self.action_help_label = ttk.Label(
+            form,
+            textvariable=self.action_help,
+            wraplength=700,
+            foreground="#666666",
+        )
+        self.action_help_label.grid(row=3, column=1, sticky="w", pady=(0, 6))
+
+        ttk.Label(form, text="Delay (seconds)").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=6)
         self.delay_entry = ttk.Entry(form, textvariable=self.delay, width=12)
-        self.delay_entry.grid(row=3, column=1, sticky="w", pady=6)
+        self.delay_entry.grid(row=4, column=1, sticky="w", pady=6)
+
+        self.youtube_limits = ttk.Frame(form)
+        self.youtube_limits.grid(row=5, column=1, sticky="w", pady=6)
+        for column, (label, variable) in enumerate((
+            ("Videos this run (0 = all)", self.youtube_max_videos),
+            ("Comments per video (0 = all)", self.youtube_max_comments),
+            ("Community posts (maximum)", self.youtube_max_posts),
+        )):
+            group = ttk.Frame(self.youtube_limits)
+            group.grid(row=0, column=column, sticky="w", padx=(0, 18))
+            ttk.Label(group, text=label).pack(anchor="w")
+            ttk.Entry(group, textvariable=variable, width=10).pack(anchor="w")
 
         buttons = ttk.Frame(outer)
         buttons.pack(fill="x", pady=(16, 10))
@@ -132,6 +178,26 @@ class SourcePanel(tk.Tk):
         )
         self.action_box.configure(values=actions)
         self.action.set(actions[0])
+        if source == "YouTube":
+            self.youtube_limits.grid()
+        else:
+            self.youtube_limits.grid_remove()
+        self._action_changed()
+
+    def _action_changed(self) -> None:
+        if self.source_type.get() == "YouTube":
+            self.action_help.set(YOUTUBE_ACTION_HELP.get(self.action.get(), ""))
+        else:
+            self.action_help.set("")
+
+    def _youtube_limit(self, value: str, label: str, *, minimum: int = 0) -> int:
+        try:
+            parsed = int(value)
+        except ValueError as exc:
+            raise ValueError(f"{label} must be a whole number.") from exc
+        if parsed < minimum:
+            raise ValueError(f"{label} must be {minimum} or greater.")
+        return parsed
 
     def _commands(self) -> list[tuple[str, list[str]]]:
         source = self.source_type.get()
@@ -142,7 +208,21 @@ class SourcePanel(tk.Tk):
                 raise ValueError("Delay must be a number.") from exc
             return build_instagram_commands(self.target.get(), self.action.get(), delay=delay)
         if source == "YouTube":
-            return build_youtube_commands(self.target.get(), self.action.get())
+            return build_youtube_commands(
+                self.target.get(),
+                self.action.get(),
+                max_videos=self._youtube_limit(
+                    self.youtube_max_videos.get(), "Videos this run"
+                ),
+                max_comments=self._youtube_limit(
+                    self.youtube_max_comments.get(), "Comments per video"
+                ),
+                max_posts=self._youtube_limit(
+                    self.youtube_max_posts.get(),
+                    "Community posts",
+                    minimum=1,
+                ),
+            )
         return build_website_commands(self.target.get(), self.action.get())
 
     def start(self) -> None:

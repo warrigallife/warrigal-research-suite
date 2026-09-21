@@ -27,6 +27,37 @@ class ControlledSourcePanelTests(unittest.TestCase):
         )[0][1]
         self.assertNotIn("--stage", command)
 
+    def test_youtube_limits_are_forwarded_to_channel_workflow(self):
+        command = build_youtube_commands(
+            "https://www.youtube.com/@DutchUncleJohn",
+            "Acquire / resume comments",
+            max_videos=4,
+            max_comments=250,
+            max_posts=25,
+        )[0][1]
+
+        self.assertEqual(command[command.index("--max-videos") + 1], "4")
+        self.assertEqual(command[command.index("--max-comments") + 1], "250")
+        self.assertEqual(command[command.index("--max-posts") + 1], "25")
+
+    def test_single_video_media_action_uses_whisper_media_pipeline(self):
+        command = build_youtube_commands(
+            "https://www.youtube.com/watch?v=example",
+            "Single-video media + Whisper transcript",
+        )[0][1]
+
+        self.assertIn("ingest-youtube-media", command)
+        self.assertNotIn("ingest-youtube-channel", command)
+
+    def test_single_video_caption_action_does_not_download_media(self):
+        command = build_youtube_commands(
+            "https://www.youtube.com/watch?v=example",
+            "Single-video available caption",
+        )[0][1]
+
+        self.assertIn("ingest-youtube", command)
+        self.assertNotIn("ingest-youtube-media", command)
+
     def test_website_document_workflow_reuses_paths(self):
         url = "https://example.test/library"
         inventory = build_website_commands(

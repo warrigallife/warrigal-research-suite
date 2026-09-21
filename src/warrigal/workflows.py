@@ -23,8 +23,20 @@ YOUTUBE_ACTIONS = (
     "Acquire / resume Community posts",
     "Index archived comments",
     "All research layers",
-    "Single-video transcript",
+    "Single-video available caption",
+    "Single-video media + Whisper transcript",
 )
+
+YOUTUBE_ACTION_HELP = {
+    "Discover channel inventory": "List the channel's videos without acquiring transcripts, comments, posts, or media.",
+    "Acquire / resume transcripts": "Acquire available YouTube captions for unfinished videos. This does not download video or audio files.",
+    "Acquire / resume comments": "Preserve comments for unfinished videos, using the comments-per-video limit.",
+    "Acquire / resume Community posts": "Preserve Community posts, using the Community-post limit.",
+    "Index archived comments": "Make this channel's already preserved comments searchable. No network acquisition is performed.",
+    "All research layers": "Run inventory, available captions, comments, Community posts, and channel-scoped comment indexing. Video/audio media is not included.",
+    "Single-video available caption": "Acquire the caption supplied by YouTube for one video URL. No media file is downloaded.",
+    "Single-video media + Whisper transcript": "Download and archive one video's media, then transcribe it with the configured local Whisper model.",
+}
 WEBSITE_ACTIONS = (
     "Discover links",
     "Inventory documents and preserve website sections",
@@ -103,10 +115,22 @@ def _instagram_plan(target: str, action: str, delay: float, config: WarrigalConf
     return WorkflowPlan("Instagram", profile, action, tuple(steps))
 
 
-def _youtube_plan(target: str, action: str, config: WarrigalConfig) -> WorkflowPlan:
+def _youtube_plan(
+    target: str,
+    action: str,
+    config: WarrigalConfig,
+    *,
+    max_videos: int = 0,
+    max_comments: int = 0,
+    max_posts: int = 1000,
+) -> WorkflowPlan:
     target = target.strip()
     if not target.startswith(("https://", "http://")):
         raise ValueError("For a new YouTube source, paste its channel or video URL.")
+    if max_videos < 0 or max_comments < 0 or max_posts < 1:
+        raise ValueError(
+            "YouTube limits must be zero or greater; Community posts must be at least 1."
+        )
     stage_by_action = {
         "Discover channel inventory": "inventory",
         "Acquire / resume transcripts": "transcripts",
@@ -116,12 +140,20 @@ def _youtube_plan(target: str, action: str, config: WarrigalConfig) -> WorkflowP
     }
     if action in stage_by_action or action == "All research layers":
         slug = safe_name(target) or "youtube-channel"
-        command = [sys.executable, "-m", "warrigal.cli", "ingest-youtube-channel", target, "--checkpoint", str(config.runtime_root / f"{slug}-youtube-channel.checkpoint.json"), "--posts-checkpoint", str(config.runtime_root / f"{slug}-youtube-posts.checkpoint.json"), "--scan-videos", "0", "--max-videos", "0", "--max-comments", "0", "--max-posts", "1000", "--max-post-pages", "100"]
+        command = [sys.executable, "-m", "warrigal.cli", "ingest-youtube-channel", target, "--checkpoint", str(config.runtime_root / f"{slug}-youtube-channel.checkpoint.json"), "--posts-checkpoint", str(config.runtime_root / f"{slug}-youtube-posts.checkpoint.json"), "--scan-videos", "0", "--max-videos", str(max_videos), "--max-comments", str(max_comments), "--max-posts", str(max_posts), "--max-post-pages", "100"]
         if action in stage_by_action:
             command.extend(["--stage", stage_by_action[action]])
         return WorkflowPlan("YouTube", target, action, (_step(action, *command),))
-    if action == "Single-video transcript":
+    if action in {"Single-video transcript", "Single-video available caption"}:
         return WorkflowPlan("YouTube", target, action, (_step("Acquiring YouTube transcript", sys.executable, "-m", "warrigal.cli", "ingest-youtube", target),))
+    if action == "Single-video media + Whisper transcript":
+        return WorkflowPlan(
+            "YouTube", target, action,
+            (_step(
+                "Downloading, archiving, and transcribing YouTube media",
+                sys.executable, "-m", "warrigal.cli", "ingest-youtube-media", target,
+            ),),
+        )
     raise ValueError("Choose a YouTube workflow action.")
 
 
@@ -155,12 +187,29 @@ def _website_plan(target: str, action: str, config: WarrigalConfig) -> WorkflowP
     return WorkflowPlan("Website", target, action, (commands[action],))
 
 
-def build_workflow_plan(source_type: str, target: str, action: str, *, delay: float = 3.0, config: WarrigalConfig = CONFIG) -> WorkflowPlan:
+def build_workflow_plan(
+    source_type: str,
+    target: str,
+    action: str,
+    *,
+    delay: float = 3.0,
+    config: WarrigalConfig = CONFIG,
+    youtube_max_videos: int = 0,
+    youtube_max_comments: int = 0,
+    youtube_max_posts: int = 1000,
+) -> WorkflowPlan:
     """Build a deterministic plan without starting processes or touching data."""
     if source_type == "Instagram":
         return _instagram_plan(target, action, delay, config)
     if source_type == "YouTube":
-        return _youtube_plan(target, action, config)
+        return _youtube_plan(
+            target,
+            action,
+            config,
+            max_videos=youtube_max_videos,
+            max_comments=youtube_max_comments,
+            max_posts=youtube_max_posts,
+        )
     if source_type == "Website":
         return _website_plan(target, action, config)
     raise ValueError(f"Unsupported source type: {source_type}")
