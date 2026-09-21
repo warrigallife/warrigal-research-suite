@@ -1,0 +1,20 @@
+# Copy this file to warrigal.local.toml and edit only values used on this Mac.
+# warrigal.local.toml is excluded from Git.
+
+[paths]
+archive_root = "~/Desktop/INFORMATION_ARCHIVE"
+runtime_root = "~/Desktop/INFORMATION_ARCHIVE/SYSTEM/WARRIGAL/runtime"
+database_path = "workspace/warrigal.db"
+object_store_path = "archive/objects"
+
+[tools]
+ffmpeg = "ffmpeg"
+ffprobe = "ffprobe"
+whisper = "whisper-cli"
+llama = "llama-cli"
+qpdf = "qpdf"
+
+[models]
+# whisper = "~/models/ggml-model.bin"
+# qwen = "~/models/qwen.gguf"
+# qwen_projector = "~/models/mmproj.gguf"

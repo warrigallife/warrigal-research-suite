@@ -30,7 +30,23 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.object_store_path, Path("/tmp/objects"))
         self.assertEqual(config.ffmpeg, "/tools/ffmpeg")
 
+    def test_local_toml_supplies_machine_specific_models(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text(
+                '[paths]\narchive_root = "/archive"\n'
+                '[tools]\nllama = "/tools/llama-cli"\n'
+                '[models]\nqwen = "/models/qwen.gguf"\n',
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertEqual(config.archive_root, Path("/archive"))
+        self.assertEqual(config.llama, "/tools/llama-cli")
+        self.assertEqual(config.qwen_model, Path("/models/qwen.gguf"))
+
 
 if __name__ == "__main__":
     unittest.main()
-

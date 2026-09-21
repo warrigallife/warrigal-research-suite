@@ -64,6 +64,14 @@ The same check is available through the main CLI:
 python -m warrigal.cli doctor
 ```
 
+Inspect database/archive coverage without changing evidence:
+
+```bash
+python -m warrigal.archive_health
+```
+
+Add `--verify-hashes` when a full byte-for-byte integrity pass is required.
+
 `OK` means a component was found. `MISSING` identifies an unavailable path,
 package or executable. Optional model/tool checks do not prevent the acquisition
 core from operating.
@@ -90,6 +98,13 @@ environment variables:
 
 Absolute paths are accepted for tools and models. Warrigal reads this
 configuration without creating, moving or deleting archive content.
+
+For persistent settings on one Mac, copy `warrigal.local.toml.example` to
+`warrigal.local.toml` and edit the copy. The local file is excluded from Git.
+Environment variables override the local TOML values.
+
+See [Architecture](docs/ARCHITECTURE.md) and
+[Data lifecycle](docs/DATA_LIFECYCLE.md) for the system boundaries.
 
 ## Interfaces
 

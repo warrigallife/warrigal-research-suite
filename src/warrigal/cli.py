@@ -30,6 +30,7 @@ from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_pr
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
 from warrigal.doctor import run_doctor
+from warrigal.archive_health import run_archive_health
 from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
 from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
@@ -54,6 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "doctor",
         help="Check Warrigal paths, dependencies, tools, and configured models.",
+    )
+    archive_health_parser = subparsers.add_parser(
+        "archive-health",
+        help="Report database coverage and missing or damaged archive objects.",
+    )
+    archive_health_parser.add_argument(
+        "--verify-hashes",
+        action="store_true",
+        help="Read and SHA-256 verify every archived object (slower).",
     )
 
     acquire_parser = subparsers.add_parser(
@@ -1679,6 +1689,9 @@ def main() -> int:
 
     if args.command == "doctor":
         return run_doctor()
+
+    if args.command == "archive-health":
+        return run_archive_health(verify_hashes=args.verify_hashes)
 
     if args.command == "acquire-manifest":
         return run_acquire_manifest(

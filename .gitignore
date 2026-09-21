@@ -22,6 +22,7 @@ venv/
 .env
 .env.*
 !.env.example
+warrigal.local.toml
 
 # Temporary files
 *.tmp
@@ -30,9 +31,14 @@ venv/
 
 # Warrigal acquisition workspace
 workspace/
+/workspace
 
 # Warrigal heavyweight archive objects
 archive/
+/archive
+
+# Local reference material kept beside the project
+/final copy for adi (1).pdf
 
 # Local databases
 *.db
