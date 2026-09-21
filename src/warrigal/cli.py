@@ -23,14 +23,23 @@ from warrigal.acquisition.youtube_comment_index import (
     index_archived_youtube_comments,
 )
 from warrigal.acquisition.youtube_posts import ingest_youtube_posts
+from warrigal.acquisition.youtube_channel_workflow import (
+    run_youtube_channel_workflow,
+)
 from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_profile
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
+from warrigal.doctor import run_doctor
 from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
 from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
 from warrigal.retrieval.passages import passages_from_rows, split_into_passages
 from warrigal.retrieval.search import search_passages
+from warrigal.retrieval.jufe_archive_search import (
+    export_jufe_search,
+    load_triggers,
+    search_jufe_archive,
+)
 
 def build_parser() -> argparse.ArgumentParser:
     """Build Warrigal's command-line interface."""
@@ -41,6 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+
+    subparsers.add_parser(
+        "doctor",
+        help="Check Warrigal paths, dependencies, tools, and configured models.",
+    )
 
     acquire_parser = subparsers.add_parser(
         "acquire",
@@ -96,6 +110,20 @@ def build_parser() -> argparse.ArgumentParser:
         "url",
         help="Public HTTP/HTTPS URL to start crawling from.",
     )
+
+    website_inventory_parser = subparsers.add_parser(
+        "inventory-website-documents",
+        help="Inventory direct PDF and ZIP links without acquiring their bodies.",
+    )
+    website_inventory_parser.add_argument("url", help="Public HTML index URL.")
+    website_inventory_parser.add_argument("--output", required=True)
+
+    website_verify_parser = subparsers.add_parser(
+        "verify-website-manifest",
+        help="Compare a website document manifest with its acquisition checkpoint.",
+    )
+    website_verify_parser.add_argument("manifest")
+    website_verify_parser.add_argument("--checkpoint", required=True)
 
 
     youtube_parser = subparsers.add_parser(
@@ -195,6 +223,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Exact stable author ID, handle, or archived profile URL.",
     )
 
+    jufe_search_parser = subparsers.add_parser(
+        "search-jufe-archive",
+        help="Search indexed evidence with a reviewed JUFE trigger vocabulary.",
+    )
+    jufe_search_parser.add_argument("--triggers", required=True)
+    jufe_search_parser.add_argument("--output", required=True)
+    jufe_search_parser.add_argument("--max-results", type=int, default=500)
+
     youtube_posts_parser = subparsers.add_parser(
         "ingest-youtube-posts",
         help="Archive and index bounded YouTube Community posts.",
@@ -219,6 +255,34 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="Maximum Community-tab pages requested (default: 20).",
+    )
+
+    youtube_channel_parser = subparsers.add_parser(
+        "ingest-youtube-channel",
+        help="Resume a complete public YouTube channel research workflow.",
+    )
+    youtube_channel_parser.add_argument("channel", help="Public YouTube channel URL.")
+    youtube_channel_parser.add_argument("--checkpoint", required=True)
+    youtube_channel_parser.add_argument("--posts-checkpoint", required=True)
+    youtube_channel_parser.add_argument(
+        "--scan-videos", type=int, default=0,
+        help="Maximum videos to discover; 0 means all available videos.",
+    )
+    youtube_channel_parser.add_argument(
+        "--max-videos", type=int, default=0,
+        help="Maximum unfinished videos processed this run; 0 means all.",
+    )
+    youtube_channel_parser.add_argument(
+        "--max-comments", type=int, default=0,
+        help="Maximum comments per video; 0 collects all available comments.",
+    )
+    youtube_channel_parser.add_argument("--max-posts", type=int, default=1000)
+    youtube_channel_parser.add_argument("--max-post-pages", type=int, default=100)
+    youtube_channel_parser.add_argument(
+        "--stage",
+        action="append",
+        choices=("inventory", "transcripts", "comments", "posts", "index"),
+        help="Run only this layer; repeat for multiple layers. Default: all research layers.",
     )
 
     instagram_parser = subparsers.add_parser(
@@ -662,6 +726,105 @@ def run_discover(url: str) -> int:
 
     return 0
 
+
+def run_inventory_website_documents(url: str, *, output_path: str) -> int:
+    """Write a reviewable PDF/ZIP inventory without acquiring resources."""
+
+    from warrigal.acquisition.manifest_inventory import build_collection_manifest
+
+    output = Path(output_path).expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    slug = output.stem.removesuffix("-website-documents")
+    fetcher = WebFetcher()
+
+    def safe_size_probe(resource_url: str) -> int | None:
+        from warrigal.acquisition.manifest_inventory import head_content_length
+        try:
+            return head_content_length(resource_url, fetcher=fetcher)
+        except Exception:
+            return None
+
+    manifest = build_collection_manifest(
+        index_url=url,
+        manifest_id=f"website-{slug}",
+        name=f"Website documents: {slug}",
+        description=f"Direct PDF and ZIP resources inventoried from {url}",
+        discovery_provenance={
+            "method": "warrigal_direct_index_inventory",
+            "index_url": url,
+        },
+        fetcher=fetcher,
+        size_probe=safe_size_probe,
+    )
+    temporary = output.with_name(output.name + ".tmp")
+    temporary.write_text(manifest.to_json(), encoding="utf-8")
+    temporary.replace(output)
+
+    print("=== WARRIGAL WEBSITE DOCUMENT INVENTORY ===")
+    print(f"INDEX:     {url}")
+    print(f"RESOURCES: {len(manifest.resources)}")
+    print(f"OUTPUT:    {output}")
+    def readable_size(size: int | None) -> str:
+        if size is None:
+            return "Unknown"
+        value = float(size)
+        for unit in ("B", "KB", "MB", "GB"):
+            if value < 1024 or unit == "GB":
+                return (
+                    f"{value:.1f} {unit}"
+                    if unit != "B"
+                    else f"{int(value)} B"
+                )
+            value /= 1024
+        return f"{size} B"
+
+    for resource in manifest.resources:
+        size = resource.expected_size_bytes
+        print(
+            f"{resource.media_type:20} "
+            f"{readable_size(size):>12} {resource.url}"
+        )
+    return 0
+
+
+def run_verify_website_manifest(
+    manifest_path: str,
+    *,
+    checkpoint_path: str,
+) -> int:
+    """Report manifest acquisition coverage without downloading anything."""
+
+    from warrigal.acquisition.manifest import CollectionManifest
+    from warrigal.acquisition.manifest_runner import ManifestCheckpointStore
+
+    manifest_file = Path(manifest_path).expanduser().resolve()
+    checkpoint_file = Path(checkpoint_path).expanduser().resolve()
+    manifest = CollectionManifest.from_json(manifest_file.read_text(encoding="utf-8"))
+    checkpoint = ManifestCheckpointStore(checkpoint_file).load(manifest.manifest_id)
+    statuses = {
+        resource.url: checkpoint.get(resource.url, {}).get("status", "pending")
+        for resource in manifest.resources
+    }
+    complete_statuses = {"acquired", "archived", "verified", "skipped_duplicate"}
+    completed = sum(status in complete_statuses for status in statuses.values())
+    failed = sum(status == "failed" for status in statuses.values())
+    pending = len(statuses) - completed - failed
+    unknown_size = sum(
+        resource.expected_size_bytes is None
+        for resource in manifest.resources
+    )
+    print("=== WARRIGAL WEBSITE MANIFEST VERIFICATION ===")
+    print(f"MANIFEST:  {manifest_file}")
+    print(f"CHECKPOINT:{checkpoint_file}")
+    print(f"TOTAL:     {len(statuses)}")
+    print(f"COMPLETED: {completed}")
+    print(f"FAILED:    {failed}")
+    print(f"PENDING:   {pending}")
+    print(f"UNKNOWN SIZE: {unknown_size}")
+    for url, status in statuses.items():
+        print(f"{status:20} {url}")
+    return 1 if failed else 0
+
 def run_crawl(url: str) -> int:
     """Crawl public web pages within controlled boundaries."""
 
@@ -913,6 +1076,77 @@ def run_ingest_youtube(url: str) -> int:
 
     db.close()
     return 0
+
+
+def run_ingest_youtube_channel(
+    channel_url: str,
+    *,
+    checkpoint_path: str,
+    posts_checkpoint_path: str,
+    scan_videos: int = 0,
+    max_videos: int = 0,
+    max_comments: int = 0,
+    max_posts: int = 1000,
+    max_post_pages: int = 100,
+    stages: list[str] | tuple[str, ...] | None = None,
+) -> int:
+    """Preserve a channel inventory, transcripts, comments, and posts."""
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        object_store = ObjectStore()
+        node = Node(name="Warrigal YouTube Channel")
+        repository.save_node(node)
+        batch = Batch(node_id=node.node_id, label="YouTube channel workflow")
+        repository.save_batch(batch)
+        job = Job(
+            name="YouTube channel workflow",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+        collection = Collection(
+            name="YouTube Channel Evidence",
+            description="Public YouTube channel evidence preserved by Warrigal.",
+        )
+        repository.save_collection(collection)
+        result = run_youtube_channel_workflow(
+            channel_url,
+            checkpoint_path=checkpoint_path,
+            posts_checkpoint_path=posts_checkpoint_path,
+            scan_videos=scan_videos,
+            max_videos=max_videos,
+            max_comments=max_comments,
+            max_posts=max_posts,
+            max_post_pages=max_post_pages,
+            stages=tuple(stages or ("transcripts", "comments", "posts", "index")),
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+        )
+        print("=== WARRIGAL YOUTUBE CHANNEL WORKFLOW ===")
+        print(f"CHANNEL:                 {result.channel_url}")
+        print(f"INVENTORY OBJECT:        {result.inventory_object_id}")
+        print(f"VIDEOS DISCOVERED:       {result.discovered_count}")
+        print(f"VIDEOS SELECTED:         {result.selected_count}")
+        print(f"VIDEOS COMPLETED:        {result.completed_count}")
+        print(f"VIDEOS FAILED:           {result.failed_count}")
+        print(f"TRANSCRIPTS UNAVAILABLE: {result.unavailable_transcript_count}")
+        print(f"COMMENTS PRESERVED:      {result.comments_collected}")
+        print(f"COMMENT PASSAGES ADDED:  {result.indexed_comment_count}")
+        print(f"COMMUNITY POSTS:         {result.community_posts_status}")
+        print(f"CHECKPOINT:              {Path(checkpoint_path).expanduser().resolve()}")
+        failed = result.failed_count or (
+            "posts" in tuple(stages or ("transcripts", "comments", "posts", "index"))
+            and result.community_posts_status == "failed"
+        )
+        return 1 if failed else 0
+    finally:
+        db.close()
 
 
 def run_ingest_youtube_comments(
@@ -1209,6 +1443,33 @@ def run_show_youtube_comments_by_author(author_identity: str) -> int:
         db.close()
 
 
+def run_search_jufe_archive(
+    *, trigger_path: str, output_path: str, max_results: int = 500
+) -> int:
+    """Search indexed Warrigal evidence and export reviewable results."""
+
+    triggers = load_triggers(trigger_path)
+    db = initialize_database()
+    try:
+        hits = search_jufe_archive(
+            WarrigalRepository(db).list_passages(),
+            triggers,
+            max_results=max_results,
+        )
+        markdown, data, count = export_jufe_search(
+            hits, output_path=output_path, triggers=triggers
+        )
+        print("=== WARRIGAL JUFE ARCHIVE SEARCH ===")
+        print(f"TRIGGERS:       {len(triggers)}")
+        print(f"RESULTS:        {count}")
+        print(f"REVIEW STATUS:  UNREVIEWED")
+        print(f"MARKDOWN:       {markdown.resolve()}")
+        print(f"JSON:           {data.resolve()}")
+        return 0
+    finally:
+        db.close()
+
+
 def run_search(
     query: str,
     min_query_coverage: float = 0.0,
@@ -1416,6 +1677,9 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
+    if args.command == "doctor":
+        return run_doctor()
+
     if args.command == "acquire-manifest":
         return run_acquire_manifest(
             args.manifest,
@@ -1429,6 +1693,15 @@ def main() -> int:
 
     if args.command == "acquire":
         return run_acquire(args.url)
+
+    if args.command == "inventory-website-documents":
+        return run_inventory_website_documents(args.url, output_path=args.output)
+
+    if args.command == "verify-website-manifest":
+        return run_verify_website_manifest(
+            args.manifest,
+            checkpoint_path=args.checkpoint,
+        )
 
     if args.command == "ingest-youtube-media":
         return run_ingest_youtube_media(args.url, model_path=args.model)
@@ -1447,6 +1720,19 @@ def main() -> int:
 
     if args.command == "ingest-youtube":
         return run_ingest_youtube(args.url)
+
+    if args.command == "ingest-youtube-channel":
+        return run_ingest_youtube_channel(
+            args.channel,
+            checkpoint_path=args.checkpoint,
+            posts_checkpoint_path=args.posts_checkpoint,
+            scan_videos=args.scan_videos,
+            max_videos=args.max_videos,
+            max_comments=args.max_comments,
+            max_posts=args.max_posts,
+            max_post_pages=args.max_post_pages,
+            stages=args.stage,
+        )
 
     if args.command == "ingest-youtube-comments":
         return run_ingest_youtube_comments(
@@ -1483,6 +1769,13 @@ def main() -> int:
 
     if args.command == "show-youtube-comments-by-author":
         return run_show_youtube_comments_by_author(args.identity)
+
+    if args.command == "search-jufe-archive":
+        return run_search_jufe_archive(
+            trigger_path=args.triggers,
+            output_path=args.output,
+            max_results=args.max_results,
+        )
 
     if args.command == "ingest-instagram-profile":
         return run_ingest_instagram_profile(

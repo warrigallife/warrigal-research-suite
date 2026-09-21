@@ -72,19 +72,16 @@ def _select_campaign_manifest(
     if max_resource_bytes is not None and max_resource_bytes < 0:
         raise ValueError("max_resource_bytes must be non-negative")
 
-    if max_resources is None and max_resource_bytes is None:
-        return manifest
-
-    selected = []
-    eligible = 0
+    retained: list[ManifestResource] = []
+    eligible: list[ManifestResource] = []
 
     for resource in manifest.resources:
         if resource.status == "verified":
-            selected.append(resource)
+            retained.append(resource)
             continue
 
         if resource.url in completed_urls:
-            selected.append(resource)
+            retained.append(resource)
             continue
 
         if max_resource_bytes is not None:
@@ -93,18 +90,32 @@ def _select_campaign_manifest(
             if resource.expected_size_bytes > max_resource_bytes:
                 continue
 
-        if max_resources is not None and eligible >= max_resources:
-            continue
+        eligible.append(resource)
 
-        selected.append(resource)
-        eligible += 1
+    # Known-size work is deliberately scheduled from smallest to largest.
+    # URL is a stable tie-breaker, and unknown-size resources run last when no
+    # byte ceiling is active.  This ordering is applied to both full and
+    # user-selected manifests because selection is only a scope filter.
+    eligible.sort(
+        key=lambda resource: (
+            resource.expected_size_bytes is None,
+            resource.expected_size_bytes
+            if resource.expected_size_bytes is not None
+            else 0,
+        )
+    )
+
+    if max_resources is not None:
+        eligible = eligible[:max_resources]
+
+    selected = [*retained, *eligible]
 
     return CollectionManifest(
         manifest_id=manifest.manifest_id,
         name=manifest.name,
         description=manifest.description,
         discovery_provenance=dict(manifest.discovery_provenance),
-        resources=tuple(selected),
+        resources=selected,
         leads=manifest.leads,
         metadata=dict(manifest.metadata),
     )

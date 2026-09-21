@@ -1,16 +1,104 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from html.parser import HTMLParser
 from pathlib import PurePosixPath
-from urllib.parse import urlparse
+import re
+from urllib.parse import urldefrag, urljoin, urlparse
 from urllib.request import Request, urlopen
 
-from warrigal.acquisition.links import extract_links
 from warrigal.acquisition.manifest import CollectionManifest, ManifestResource
 from warrigal.acquisition.web import WebFetcher
 
 
 SizeProbe = Callable[[str], int | None]
+
+
+def _clean_label(value: str) -> str:
+    """Return a stable, human-readable label suitable for a branch segment."""
+
+    value = " ".join(value.split()).strip()
+    value = value.replace("/", " & ").replace("\\", " & ")
+    value = re.sub(r'[:*?"<>|]+', " ", value)
+    return " ".join(value.split()).strip(" .-")
+
+
+def _page_branch(url: str) -> str:
+    path = PurePosixPath(urlparse(url).path)
+    stem = path.stem
+    if not stem or stem.lower() in {"index", "home"}:
+        return "HOME"
+    return _clean_label(stem.replace("-", " ").replace("_", " ")).upper()
+
+
+class _SectionedDocumentParser(HTMLParser):
+    """Collect document links with the closest preceding HTML heading."""
+
+    def __init__(self, base_url: str) -> None:
+        super().__init__()
+        self.base_url = base_url
+        self.current_section = "GENERAL"
+        self.documents: list[tuple[str, str, str]] = []
+        self._heading_tag: str | None = None
+        self._heading_text: list[str] = []
+        self._anchor_href: str | None = None
+        self._anchor_text: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        tag = tag.lower()
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            self._heading_tag = tag
+            self._heading_text = []
+        elif tag == "a":
+            self._anchor_href = next(
+                (value for name, value in attrs if name.lower() == "href" and value),
+                None,
+            )
+            self._anchor_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._heading_tag is not None:
+            self._heading_text.append(data)
+        if self._anchor_href is not None:
+            self._anchor_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if self._heading_tag == tag:
+            heading = _clean_label("".join(self._heading_text))
+            if heading:
+                self.current_section = heading.upper()
+            self._heading_tag = None
+            self._heading_text = []
+        elif tag == "a" and self._anchor_href is not None:
+            absolute, _ = urldefrag(urljoin(self.base_url, self._anchor_href))
+            if urlparse(absolute).scheme in {"http", "https"}:
+                title = _clean_label("".join(self._anchor_text))
+                self.documents.append((absolute, self.current_section, title))
+            self._anchor_href = None
+            self._anchor_text = []
+
+
+def extract_sectioned_document_links(
+    html: bytes,
+    base_url: str,
+) -> list[tuple[str, str, str]]:
+    """Return unique supported links as (URL, section, visible label)."""
+
+    parser = _SectionedDocumentParser(base_url)
+    parser.feed(html.decode("utf-8", errors="replace"))
+    seen: set[str] = set()
+    result: list[tuple[str, str, str]] = []
+    for url, section, title in parser.documents:
+        if media_type_for_url(url) is None or url in seen:
+            continue
+        seen.add(url)
+        result.append((url, section, title))
+    return result
 
 
 def media_type_for_url(url: str) -> str | None:
@@ -41,11 +129,15 @@ def discover_manifest_resources(
     """
 
     response = fetcher.fetch(index_url)
-    links = extract_links(response.data, response.final_url)
+    links = extract_sectioned_document_links(
+        response.data,
+        response.final_url,
+    )
+    page_branch = _page_branch(response.final_url)
 
     resources: list[ManifestResource] = []
 
-    for url in links:
+    for url, section, title in links:
         media_type = media_type_for_url(url)
 
         if media_type is None:
@@ -59,6 +151,12 @@ def discover_manifest_resources(
                 media_type=media_type,
                 expected_size_bytes=expected_size_bytes,
                 status="inventoried",
+                metadata={
+                    "branch": f"{page_branch}/{section}",
+                    "source_page": response.final_url,
+                    "source_section": section,
+                    "link_label": title,
+                },
             )
         )
 

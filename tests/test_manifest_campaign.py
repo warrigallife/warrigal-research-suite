@@ -116,6 +116,50 @@ class ManifestCampaignTests(unittest.TestCase):
         self.assertEqual(len(zip_calls), 1)
         self.assertEqual(result.selected_resources, 3)
 
+    def test_known_size_resources_are_acquired_smallest_first(self):
+        manifest = make_manifest()
+        manifest.resources[1].expected_size_bytes = 900
+        manifest.resources[2].expected_size_bytes = 100
+        manifest.resources[3].expected_size_bytes = 500
+        calls = []
+
+        run_manifest_campaign(
+            manifest,
+            pdf_handler=lambda resource: calls.append(resource.url) or {},
+            zip_handler=lambda resource: calls.append(resource.url) or {},
+        )
+
+        self.assertEqual(
+            calls,
+            [
+                "https://example.test/two.zip",
+                "https://example.test/three.pdf",
+                "https://example.test/one.pdf",
+            ],
+        )
+
+    def test_unknown_sizes_follow_known_sizes_without_a_ceiling(self):
+        manifest = make_manifest()
+        manifest.resources[1].expected_size_bytes = None
+        manifest.resources[2].expected_size_bytes = 200
+        manifest.resources[3].expected_size_bytes = 100
+        calls = []
+
+        run_manifest_campaign(
+            manifest,
+            pdf_handler=lambda resource: calls.append(resource.url) or {},
+            zip_handler=lambda resource: calls.append(resource.url) or {},
+        )
+
+        self.assertEqual(
+            calls,
+            [
+                "https://example.test/three.pdf",
+                "https://example.test/two.zip",
+                "https://example.test/one.pdf",
+            ],
+        )
+
     def test_invalid_limit_is_rejected_before_handlers_run(self):
         calls = []
 

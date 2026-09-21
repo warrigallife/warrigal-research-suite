@@ -14,7 +14,7 @@ from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
 
 
-CommentExtractor = Callable[[str, int], Mapping[str, Any]]
+CommentExtractor = Callable[[str, int | None], Mapping[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,19 @@ class YouTubeCommentIngestionResult:
     matched_author_ids: tuple[str, ...]
     target_author_id: str | None
     target_author_handle: str | None
+    deduplicated: bool
+
+
+@dataclass(frozen=True)
+class YouTubeCommentSnapshotResult:
+    """Result of preserving a complete bounded comment snapshot."""
+
+    video_id: str
+    video_title: str
+    object_id: str
+    acquisition_id: str
+    sha256: str
+    collected_count: int
     deduplicated: bool
 
 
@@ -112,11 +125,11 @@ def parse_youtube_comments(info: Mapping[str, Any]) -> list[YouTubeComment]:
 
 def extract_youtube_comments(
     video_url: str,
-    max_comments: int,
+    max_comments: int | None,
 ) -> Mapping[str, Any]:
     """Collect a bounded public comment snapshot with yt-dlp."""
 
-    if max_comments < 1:
+    if max_comments is not None and max_comments < 1:
         raise ValueError("max_comments must be at least 1")
 
     options = {
@@ -124,13 +137,10 @@ def extract_youtube_comments(
         "skip_download": True,
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {
-            "youtube": {
-                "max_comments": [str(max_comments)],
-                "comment_sort": ["new"],
-            }
-        },
+        "extractor_args": {"youtube": {"comment_sort": ["new"]}},
     }
+    if max_comments is not None:
+        options["extractor_args"]["youtube"]["max_comments"] = [str(max_comments)]
     with yt_dlp.YoutubeDL(options) as ydl:
         return ydl.extract_info(video_url, download=False)
 
@@ -185,6 +195,97 @@ def select_target_thread_context(
         elif comment.parent_id in target_ids:
             selected.append((comment, "reply_context", None))
     return selected
+
+
+def preserve_youtube_comment_snapshot(
+    video_url: str,
+    *,
+    max_comments: int | None = None,
+    repository: WarrigalRepository,
+    object_store: ObjectStore,
+    job_id: str,
+    node_id: str,
+    batch_id: str,
+    collection_id: str,
+    extractor: CommentExtractor = extract_youtube_comments,
+) -> YouTubeCommentSnapshotResult:
+    """Preserve every comment returned by one bounded public snapshot.
+
+    This is deliberately independent of target-author research.  It stores the
+    same stable snapshot schema used by ``ingest_youtube_comments`` and leaves
+    indexing to the archive-wide comment indexer.
+    """
+
+    if max_comments is not None and max_comments < 1:
+        raise ValueError("max_comments must be at least 1")
+
+    info = extractor(video_url, max_comments)
+    video_id = _optional_string(info.get("id"))
+    video_title = _optional_string(info.get("title"))
+    if not video_id or not video_title:
+        raise ValueError("YouTube comment snapshot lacks video identity")
+
+    final_url = _optional_string(info.get("webpage_url")) or video_url
+    comments = parse_youtube_comments(info)
+    snapshot = {
+        "schema": "warrigal.youtube-comments.v1",
+        "video": {
+            "id": video_id,
+            "title": video_title,
+            "url": final_url,
+            "channel": _optional_string(info.get("channel")),
+            "channel_id": _optional_string(info.get("channel_id")),
+        },
+        "comments": [asdict(comment) for comment in comments],
+    }
+    data = (
+        json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n"
+    ).encode("utf-8")
+
+    source = Source(
+        source_type="youtube_comments",
+        locator=video_url,
+        final_locator=final_url,
+        title=f"Comments: {video_title}",
+        metadata={
+            "video_id": video_id,
+            "channel": _optional_string(info.get("channel")),
+            "channel_id": _optional_string(info.get("channel_id")),
+        },
+    )
+    repository.save_source(source)
+    acquisition = AcquisitionService(repository, object_store).acquire_bytes(
+        data=data,
+        source_id=source.source_id,
+        job_id=job_id,
+        node_id=node_id,
+        batch_id=batch_id,
+        method="youtube_comments_ytdlp",
+        mime_type="application/json",
+        original_filename=f"{video_id}.comments.json",
+        collection_id=collection_id,
+        metadata={
+            "video_id": video_id,
+            "video_url": final_url,
+            "collected_count": len(comments),
+            "max_comments": max_comments,
+            "snapshot_scope": (
+                "all_available_comments"
+                if max_comments is None
+                else "complete_bounded_snapshot"
+            ),
+        },
+    )
+    return YouTubeCommentSnapshotResult(
+        video_id=video_id,
+        video_title=video_title,
+        object_id=acquisition.object_id,
+        acquisition_id=acquisition.acquisition_id,
+        sha256=acquisition.sha256,
+        collected_count=len(comments),
+        deduplicated=acquisition.deduplicated,
+    )
 
 
 def ingest_youtube_comments(

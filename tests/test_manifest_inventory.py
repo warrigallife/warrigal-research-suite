@@ -5,6 +5,7 @@ import unittest
 from warrigal.acquisition.manifest_inventory import (
     build_collection_manifest,
     discover_manifest_resources,
+    extract_sectioned_document_links,
     media_type_for_url,
 )
 from warrigal.acquisition.web import WebResponse
@@ -87,6 +88,49 @@ class ManifestInventoryTests(unittest.TestCase):
         )
         self.assertEqual(resources[1].media_type, "application/zip")
         self.assertEqual(resources[1].expected_size_bytes, 5678)
+        self.assertEqual(
+            resources[0].metadata["branch"],
+            "HOME/GENERAL",
+        )
+
+    def test_preserves_page_sections_as_publication_branches(self) -> None:
+        html = b"""
+        <h2>Rare information</h2>
+        <a href="radionics.pdf"><span>Radionics manual</span></a>
+        <h2>Recipes / Cooking</h2>
+        <a href="bread.pdf">Bread recipes</a>
+        """
+        resources = discover_manifest_resources(
+            "https://example.test/free-ebooks.html",
+            fetcher=FakeFetcher(html),
+            size_probe=lambda _url: 100,
+        )
+
+        self.assertEqual(
+            [resource.metadata["branch"] for resource in resources],
+            [
+                "FREE EBOOKS/RARE INFORMATION",
+                "FREE EBOOKS/RECIPES & COOKING",
+            ],
+        )
+        self.assertEqual(
+            resources[1].metadata["link_label"],
+            "Bread recipes",
+        )
+
+    def test_sectioned_link_extraction_deduplicates_fragment_links(self) -> None:
+        links = extract_sectioned_document_links(
+            b"""
+            <h3>History</h3>
+            <a href="book.pdf#page=2">Book</a>
+            <a href="book.pdf">Duplicate</a>
+            """,
+            self.index_url,
+        )
+        self.assertEqual(
+            links,
+            [("https://example.test/library/book.pdf", "HISTORY", "Book")],
+        )
 
     def test_does_not_recursively_crawl_linked_pages(self) -> None:
         fetcher = FakeFetcher(self.html)

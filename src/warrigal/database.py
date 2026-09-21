@@ -3,8 +3,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from warrigal.config import CONFIG
 
-DEFAULT_DATABASE_PATH = Path("workspace/warrigal.db")
+
+DEFAULT_DATABASE_PATH = CONFIG.database_path
 
 
 SCHEMA = """

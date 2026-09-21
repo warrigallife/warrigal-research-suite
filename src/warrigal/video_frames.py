@@ -5,6 +5,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from warrigal.config import CONFIG
+
 
 @dataclass(frozen=True)
 class VideoFrame:
@@ -17,8 +19,8 @@ def extract_video_frames(
     source_path: str | Path,
     *,
     interval_seconds: float = 10.0,
-    ffmpeg_path: str = "/opt/homebrew/bin/ffmpeg",
-    ffprobe_path: str = "/opt/homebrew/bin/ffprobe",
+    ffmpeg_path: str = CONFIG.ffmpeg,
+    ffprobe_path: str = CONFIG.ffprobe,
 ) -> tuple[VideoFrame, ...]:
     """Extract representative JPEG frames with deterministic timestamps."""
     source = Path(source_path).expanduser().resolve()

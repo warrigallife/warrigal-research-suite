@@ -4,8 +4,10 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from warrigal.config import CONFIG
 
-DEFAULT_OBJECT_STORE = Path("archive/objects")
+
+DEFAULT_OBJECT_STORE = CONFIG.object_store_path
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,38 @@
+# Evidence-derived JUFE trigger vocabulary v1
+tensegrity
+toroidal
+torus
+manifold
+lattice
+phase inversion
+phase lock
+counter rotating
+cross axial
+cross-axial
+shunt
+gated transfer
+zero drift
+zero-drift
+Planck floor
+Riemann
+twin prime
+Fibonacci
+fine structure
+modulo 6
+mod 6
+Z6
+Z7
+O(8)
+3-6-3
+3π
+six axes
+structural memory
+matter antimatter
+matter and antimatter
+compression repulsion
+fluid electrical
+inductive kickback
+pressure gradient
+recursive
+multiscale
+witness

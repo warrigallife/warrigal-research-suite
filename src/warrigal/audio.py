@@ -6,6 +6,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from warrigal.config import CONFIG
+
 
 @dataclass(frozen=True)
 class TranscriptSegment:
@@ -41,8 +43,8 @@ def transcribe_audio(
     source_path: str | Path,
     *,
     model_path: str | Path,
-    ffmpeg_path: str = "/opt/homebrew/bin/ffmpeg",
-    whisper_path: str = "/opt/homebrew/bin/whisper-cli",
+    ffmpeg_path: str = CONFIG.ffmpeg,
+    whisper_path: str = CONFIG.whisper,
     language: str = "en",
 ) -> TranscriptResult:
     """Transcribe local audio without modifying the source file."""
