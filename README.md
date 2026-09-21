@@ -130,6 +130,16 @@ The source panel orchestrates existing command modules. Selecting an inventory
 or review action does not automatically acquire every resource; acquisition and
 publication remain explicit stages.
 
+Preview the panel's exact plan without running any command:
+
+```bash
+python -m warrigal.cli plan-source YouTube \
+  "https://www.youtube.com/@DutchUncleJohn" \
+  --action "Discover channel inventory"
+```
+
+The panel and this read-only preview use the same workflow definition.
+
 ## Verification
 
 Run the complete test suite from the project root:

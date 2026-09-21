@@ -31,6 +31,7 @@ from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
 from warrigal.doctor import run_doctor
 from warrigal.archive_health import run_archive_health
+from warrigal.workflows import actions_for, build_workflow_plan
 from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
 from warrigal.object_store import ObjectStore
 from warrigal.repository import WarrigalRepository
@@ -65,6 +66,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Read and SHA-256 verify every archived object (slower).",
     )
+    plan_source_parser = subparsers.add_parser(
+        "plan-source",
+        help="Show the exact shared workflow plan without running it.",
+    )
+    plan_source_parser.add_argument(
+        "source_type", choices=("Instagram", "YouTube", "Website")
+    )
+    plan_source_parser.add_argument("target", help="Profile name or source URL.")
+    plan_source_parser.add_argument("--action", required=True)
+    plan_source_parser.add_argument("--delay", type=float, default=3.0)
 
     acquire_parser = subparsers.add_parser(
         "acquire",
@@ -1527,6 +1538,37 @@ def run_search(
     return 0
 
 
+def run_plan_source(
+    source_type: str,
+    target: str,
+    action: str,
+    *,
+    delay: float = 3.0,
+) -> int:
+    """Print the panel's exact workflow plan without executing any step."""
+
+    if action not in actions_for(source_type):
+        choices = "\n  - ".join(actions_for(source_type))
+        raise ValueError(
+            f"Unknown {source_type} action: {action}\nAvailable actions:\n  - {choices}"
+        )
+    plan = build_workflow_plan(
+        source_type, target, action, delay=delay
+    )
+    print("=== WARRIGAL SOURCE PLAN (READ ONLY) ===")
+    print(f"SOURCE TYPE: {plan.source_type}")
+    print(f"TARGET:      {plan.target}")
+    print(f"ACTION:      {plan.action}")
+    print(f"STEPS:       {len(plan.steps)}")
+    for index, step in enumerate(plan.steps, start=1):
+        print()
+        print(f"[{index}] {step.label}")
+        print("    " + " ".join(step.command))
+    print()
+    print("NO COMMANDS WERE RUN")
+    return 0
+
+
 def run_acquire_manifest(
     manifest_path: str,
     *,
@@ -1692,6 +1734,14 @@ def main() -> int:
 
     if args.command == "archive-health":
         return run_archive_health(verify_hashes=args.verify_hashes)
+
+    if args.command == "plan-source":
+        return run_plan_source(
+            args.source_type,
+            args.target,
+            args.action,
+            delay=args.delay,
+        )
 
     if args.command == "acquire-manifest":
         return run_acquire_manifest(

@@ -40,6 +40,8 @@ published folder does not register it as archived evidence.
 - `config.py` — one resolved configuration object.
 - `doctor.py` — read-only installation diagnostics.
 - `archive_health.py` — read-only database/archive integrity reporting.
+- `workflows.py` — side-effect-free source action and command plans shared by
+  the visual panel and CLI preview.
 - `database.py` — schema creation and migrations.
 - `repository.py` — persistence boundary for domain records.
 - `object_store.py` — immutable content-addressed byte storage.

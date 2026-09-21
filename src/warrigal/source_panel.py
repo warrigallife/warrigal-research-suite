@@ -7,40 +7,21 @@ duplicating acquisition logic.
 
 from __future__ import annotations
 
-import json
 import queue
-import re
 import subprocess
-import sys
 import threading
 from pathlib import Path
-from urllib.parse import urlparse
 
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 from warrigal.config import CONFIG
+from warrigal.workflows import actions_for, build_workflow_plan, safe_name
 
 
 ARCHIVE_ROOT = CONFIG.archive_root
 RUNTIME_ROOT = CONFIG.runtime_root
 PUBLICATION_ROOT = ARCHIVE_ROOT / "COLLECTIONS" / "INSTAGRAM"
-WEBSITE_SMALL_FILE_LIMIT_BYTES = 25 * 1024 * 1024
-
-
-def safe_name(value: str) -> str:
-    value = value.strip().rstrip("/")
-    if "://" in value:
-        parsed = urlparse(value)
-        parts = [part for part in parsed.path.split("/") if part]
-        if parts:
-            value = parts[0]
-        elif parsed.hostname:
-            value = parsed.hostname
-    value = value.lstrip("@").lower()
-    return re.sub(r"[^a-z0-9._-]+", "-", value).strip("-.")
-
-
 def instagram_paths(target: str) -> tuple[str, Path, Path]:
     profile = safe_name(target)
     if not profile:
@@ -58,226 +39,17 @@ def build_instagram_commands(
     *,
     delay: float = 3.0,
 ) -> list[tuple[str, list[str]]]:
-    profile, inventory, checkpoint = instagram_paths(target)
-    python = sys.executable
-    commands: list[tuple[str, list[str]]] = []
-
-    if action in {"Complete workflow", "Discover inventory"}:
-        commands.append((
-            "Discovering Instagram inventory",
-            [
-                python,
-                "-m",
-                "warrigal.instagram_profile_inventory",
-                profile,
-                "--output",
-                str(inventory),
-                "--delay",
-                str(delay),
-            ],
-        ))
-
-    if action in {"Complete workflow", "Acquire / resume"}:
-        commands.append((
-            "Acquiring unfinished Instagram posts",
-            [
-                python,
-                "-m",
-                "warrigal.instagram_browser_campaign",
-                "--inventory",
-                str(inventory),
-                "--checkpoint",
-                str(checkpoint),
-                "--max-posts",
-                "0",
-                "--delay",
-                str(delay),
-            ],
-        ))
-
-    if action in {"Complete workflow", "Verify"}:
-        commands.append((
-            "Verifying no Instagram posts remain",
-            [
-                python,
-                "-m",
-                "warrigal.instagram_browser_campaign",
-                "--inventory",
-                str(inventory),
-                "--checkpoint",
-                str(checkpoint),
-                "--max-posts",
-                "0",
-                "--delay",
-                str(delay),
-            ],
-        ))
-
-    if action in {"Complete workflow", "Publish"}:
-        commands.append((
-            "Publishing the Instagram collection",
-            [
-                python,
-                "-m",
-                "warrigal.publish_instagram_collection",
-                "--output-root",
-                str(PUBLICATION_ROOT),
-                "--profile",
-                profile,
-            ],
-        ))
-
-    return commands
+    return build_workflow_plan(
+        "Instagram", target, action, delay=delay
+    ).panel_commands()
 
 
 def build_youtube_commands(target: str, action: str) -> list[tuple[str, list[str]]]:
-    target = target.strip()
-    if not target.startswith(("https://", "http://")):
-        raise ValueError(
-            "For a new YouTube source, paste its channel or video URL. "
-            "Saved channel names can be added after the first URL-based run."
-        )
-
-    python = sys.executable
-    stage_by_action = {
-        "Discover channel inventory": "inventory",
-        "Acquire / resume transcripts": "transcripts",
-        "Acquire / resume comments": "comments",
-        "Acquire / resume Community posts": "posts",
-        "Index archived comments": "index",
-    }
-    if action in stage_by_action or action == "All research layers":
-        slug = safe_name(target) or "youtube-channel"
-        checkpoint = RUNTIME_ROOT / f"{slug}-youtube-channel.checkpoint.json"
-        posts_checkpoint = RUNTIME_ROOT / f"{slug}-youtube-posts.checkpoint.json"
-        command = [
-            python, "-m", "warrigal.cli", "ingest-youtube-channel", target,
-            "--checkpoint", str(checkpoint),
-            "--posts-checkpoint", str(posts_checkpoint),
-            "--scan-videos", "0",
-            "--max-videos", "0",
-            "--max-comments", "0",
-            "--max-posts", "1000",
-            "--max-post-pages", "100",
-        ]
-        if action in stage_by_action:
-            command.extend(["--stage", stage_by_action[action]])
-        return [(action, command)]
-
-    if action == "Single-video transcript":
-        return [("Acquiring YouTube transcript", [python, "-m", "warrigal.cli", "ingest-youtube", target])]
-
-    raise ValueError("Choose a YouTube workflow action.")
+    return build_workflow_plan("YouTube", target, action).panel_commands()
 
 
 def build_website_commands(target: str, action: str) -> list[tuple[str, list[str]]]:
-    target = target.strip()
-    if not target.startswith(("https://", "http://")):
-        target = "https://" + target
-    slug = safe_name(target) or "website"
-    manifest = RUNTIME_ROOT / f"{slug}-website-documents.json"
-    selected_manifest = RUNTIME_ROOT / f"{slug}-website-documents-selected.json"
-    checkpoint = RUNTIME_ROOT / f"{slug}-website-documents.checkpoint.json"
-    hostname = (urlparse(target).hostname or slug).removeprefix("www.").lower()
-    publication_root = ARCHIVE_ROOT / "COLLECTIONS" / "WEBSITES" / safe_name(hostname)
-    commands = {
-        "Discover links": (
-            "Discovering links without archiving them",
-            [sys.executable, "-m", "warrigal.cli", "discover", target],
-        ),
-        "Inventory documents and preserve website sections": (
-            "Building a section-aware, reviewable document inventory",
-            [
-                sys.executable, "-m", "warrigal.cli",
-                "inventory-website-documents", target,
-                "--output", str(manifest),
-            ],
-        ),
-        "Review / select inventoried documents": (
-            "Opening document selection",
-            [
-                sys.executable, "-m", "warrigal.website_document_selector",
-                str(manifest), "--output", str(selected_manifest),
-            ],
-        ),
-        "Acquire / resume smaller documents (up to 25 MB)": (
-            "Acquiring known-size documents up to 25 MB (smallest first)",
-            [
-                sys.executable, "-m", "warrigal.cli", "acquire-manifest",
-                str(manifest), "--checkpoint", str(checkpoint),
-                "--max-resources", "10000",
-                "--max-resource-bytes", str(WEBSITE_SMALL_FILE_LIMIT_BYTES),
-                "--retry-failures", "2",
-                "--retry-delay-seconds", "3",
-                "--read-timeout", "180",
-            ],
-        ),
-        "Acquire / resume selected smaller documents (up to 25 MB)": (
-            "Acquiring selected known-size documents up to 25 MB (smallest first)",
-            [
-                sys.executable, "-m", "warrigal.cli", "acquire-manifest",
-                str(selected_manifest), "--checkpoint", str(checkpoint),
-                "--max-resources", "10000",
-                "--max-resource-bytes", str(WEBSITE_SMALL_FILE_LIMIT_BYTES),
-                "--retry-failures", "2",
-                "--retry-delay-seconds", "3",
-                "--read-timeout", "180",
-            ],
-        ),
-        "Verify all inventoried documents": (
-            "Verifying complete inventory coverage",
-            [
-                sys.executable, "-m", "warrigal.cli",
-                "verify-website-manifest", str(manifest),
-                "--checkpoint", str(checkpoint),
-            ],
-        ),
-        "Verify selected documents": (
-            "Verifying selected document coverage",
-            [
-                sys.executable, "-m", "warrigal.cli",
-                "verify-website-manifest", str(selected_manifest),
-                "--checkpoint", str(checkpoint),
-            ],
-        ),
-        "Publish selected documents": (
-            "Publishing selected documents as readable files",
-            [
-                sys.executable, "-m", "warrigal.publish_manifest_collection",
-                str(selected_manifest), "--checkpoint", str(checkpoint),
-                "--output-root", str(publication_root),
-            ],
-        ),
-        "Publish all acquired documents": (
-            "Publishing all acquired documents as readable files",
-            [
-                sys.executable, "-m", "warrigal.publish_manifest_collection",
-                str(manifest), "--checkpoint", str(checkpoint),
-                "--output-root", str(publication_root),
-            ],
-        ),
-        "Acquire this URL only": (
-            "Acquiring one website resource",
-            [sys.executable, "-m", "warrigal.cli", "acquire", target],
-        ),
-        "Crawl up to 10 same-site pages": (
-            "Crawling up to 10 same-site pages",
-            [sys.executable, "-m", "warrigal.cli", "crawl", target],
-        ),
-        # Retain the earlier action name for callers and saved tests while the
-        # panel presents the clearer bounded label above.
-        "Crawl website": (
-            "Crawling up to 10 same-site pages",
-            [sys.executable, "-m", "warrigal.cli", "crawl", target],
-        ),
-    }
-    # Keep the previous label working for tests and older saved instructions.
-    commands["Inventory direct PDF / ZIP documents"] = commands[
-        "Inventory documents and preserve website sections"
-    ]
-    if action not in commands:
-        raise ValueError("Choose a website action.")
-    return [commands[action]]
+    return build_workflow_plan("Website", target, action).panel_commands()
 
 
 class SourcePanel(tk.Tk):
@@ -354,36 +126,10 @@ class SourcePanel(tk.Tk):
 
     def _source_changed(self) -> None:
         source = self.source_type.get()
-        if source == "Instagram":
-            actions = ("Complete workflow", "Discover inventory", "Acquire / resume", "Verify", "Publish")
-            self.target_entry.configure()
-            self.delay_entry.configure(state="normal")
-        elif source == "YouTube":
-            actions = (
-                "Discover channel inventory",
-                "Acquire / resume transcripts",
-                "Acquire / resume comments",
-                "Acquire / resume Community posts",
-                "Index archived comments",
-                "All research layers",
-                "Single-video transcript",
-            )
-            self.delay_entry.configure(state="disabled")
-        else:
-            actions = (
-                "Discover links",
-                "Inventory documents and preserve website sections",
-                "Review / select inventoried documents",
-                "Acquire / resume selected smaller documents (up to 25 MB)",
-                "Acquire / resume smaller documents (up to 25 MB)",
-                "Verify selected documents",
-                "Verify all inventoried documents",
-                "Publish selected documents",
-                "Publish all acquired documents",
-                "Acquire this URL only",
-                "Crawl up to 10 same-site pages",
-            )
-            self.delay_entry.configure(state="disabled")
+        actions = actions_for(source)
+        self.delay_entry.configure(
+            state="normal" if source == "Instagram" else "disabled"
+        )
         self.action_box.configure(values=actions)
         self.action.set(actions[0])
 
