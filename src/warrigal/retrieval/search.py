@@ -162,9 +162,6 @@ def search_passages(
             else 0.0
         )
 
-        if query_coverage < min_query_coverage:
-            continue
-
         score = float(len(matching_terms))
 
         query_term_frequency = _query_term_frequency(
@@ -189,6 +186,12 @@ def search_passages(
             if query_terms
             else 0.0
         )
+
+        # Coverage may be satisfied by the evidence text or its source title.
+        # Previously title-only matches were discarded before title matching
+        # was calculated.
+        if max(query_coverage, title_query_coverage) < min_query_coverage:
+            continue
 
         if score > 0 or title_query_coverage > 0:
             results.append(

@@ -29,6 +29,7 @@ from warrigal.acquisition.youtube_channel_workflow import (
 from warrigal.instagram_cli import run_ingest_instagram, run_ingest_instagram_profile
 from warrigal.acquisition.web import WebFetcher
 from warrigal.database import initialize_database
+from warrigal.config import CONFIG
 from warrigal.doctor import run_doctor
 from warrigal.archive_health import run_archive_health
 from warrigal.workflows import actions_for, build_workflow_plan
@@ -368,8 +369,11 @@ def build_parser() -> argparse.ArgumentParser:
     youtube_media_parser.add_argument("url", help="Public YouTube video URL.")
     youtube_media_parser.add_argument(
         "--model",
-        required=True,
-        help="Path to a local whisper.cpp model.",
+        default=str(CONFIG.whisper_model) if CONFIG.whisper_model else None,
+        help=(
+            "Path to a local whisper.cpp model. Defaults to the model in "
+            "warrigal.local.toml or WARRIGAL_WHISPER_MODEL."
+        ),
     )
 
     video_parser = subparsers.add_parser(
@@ -1516,6 +1520,9 @@ def run_search(
     print(f"RESULTS: {len(results)}")
 
     for result in results:
+        acquisition = repository.get_acquisition(
+            result.passage.acquisition_id
+        )
         print()
         print(f"SCORE:          {result.score}")
         print(f"COVERAGE:       {result.query_coverage:.2f}")
@@ -1532,6 +1539,10 @@ def run_search(
         print(f"SOURCE:         {result.passage.source_url}")
         print(f"OBJECT:         {result.passage.object_id}")
         print(f"ACQUISITION:    {result.passage.acquisition_id}")
+        print(
+            "METHOD:         "
+            f"{acquisition['method'] if acquisition is not None else 'unknown'}"
+        )
         print(f"EVIDENCE:       {result.passage.text}")
 
     db.close()
@@ -1767,6 +1778,11 @@ def main() -> int:
         )
 
     if args.command == "ingest-youtube-media":
+        if not args.model:
+            parser.error(
+                "ingest-youtube-media requires --model or a configured "
+                "[models] whisper value"
+            )
         return run_ingest_youtube_media(args.url, model_path=args.model)
 
     if args.command == "ingest-video":

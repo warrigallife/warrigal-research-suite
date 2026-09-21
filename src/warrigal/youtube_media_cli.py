@@ -23,6 +23,9 @@ def download_youtube_media(url: str, destination: Path) -> tuple[Path, dict]:
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        # Modern YouTube extraction needs a JavaScript runtime. Warrigal's
+        # doctor documents Deno as the supported local runtime.
+        "js_runtimes": {"deno": {}},
     }
 
     with yt_dlp.YoutubeDL(options) as ydl:

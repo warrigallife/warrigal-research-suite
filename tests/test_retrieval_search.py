@@ -91,6 +91,22 @@ class SearchPassagesTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].passage.index, 1)
 
+    def test_minimum_coverage_accepts_title_only_match(self):
+        passage = Passage(
+            index=0,
+            text="unrelated spoken evidence",
+            source_title="WhatsApp Video 2026 07 23",
+        )
+
+        results = search_passages(
+            "WhatsApp Video 2026",
+            [passage],
+            min_query_coverage=1.0,
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].title_query_coverage, 1.0)
+
     def test_max_results_limits_ranked_results(self):
         passages = [
             Passage(index=0, text="Ganoderma."),

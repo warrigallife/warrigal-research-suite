@@ -119,6 +119,43 @@ class YouTubePostTests(unittest.TestCase):
             saved = json.loads(checkpoint.read_text())
             self.assertEqual(saved["post_ids"], ["Ugkx-POST-1"])
 
+    @patch("warrigal.acquisition.youtube_posts.AcquisitionService")
+    def test_zero_post_observation_writes_checkpoint(self, service):
+        service.return_value.acquire_bytes.return_value = SimpleNamespace(
+            object_id="WRG-OBJ-EMPTY",
+            acquisition_id="WRG-ACQ-EMPTY",
+            sha256="b" * 64,
+            deduplicated=False,
+        )
+        repository = Mock()
+        repository.get_passages_for_object.return_value = []
+        extractor = Mock(return_value={
+            "channel_url": "https://www.youtube.com/channel/UC-EMPTY/posts",
+            "channel_id": "UC-EMPTY",
+            "channel_title": "Empty Channel",
+            "pages_fetched": 1,
+            "posts": [],
+        })
+
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "posts.json"
+            result = ingest_youtube_posts(
+                "https://www.youtube.com/channel/UC-EMPTY/posts",
+                checkpoint_path=checkpoint,
+                max_posts=10,
+                max_pages=3,
+                repository=repository,
+                object_store=Mock(),
+                job_id="WRG-JOB", node_id="WRG-NODE",
+                batch_id="WRG-BATCH", collection_id="WRG-COL",
+                extractor=extractor,
+            )
+
+            self.assertEqual(result.collected_count, 0)
+            self.assertTrue(checkpoint.is_file())
+            saved = json.loads(checkpoint.read_text())
+            self.assertEqual(saved["post_ids"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

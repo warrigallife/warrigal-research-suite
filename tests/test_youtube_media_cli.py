@@ -23,6 +23,13 @@ class YouTubeMediaCLITests(unittest.TestCase):
         self.assertEqual(args.url, "https://www.youtube.com/watch?v=test")
         self.assertEqual(args.model, "model.bin")
 
+    def test_parser_allows_configured_model_default(self):
+        args = build_parser().parse_args([
+            "ingest-youtube-media",
+            "https://www.youtube.com/watch?v=test",
+        ])
+        self.assertTrue(args.model is None or isinstance(args.model, str))
+
     def test_archives_before_transcription_and_preserves_youtube_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

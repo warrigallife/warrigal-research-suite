@@ -398,6 +398,10 @@ def ingest_youtube_posts(
         checkpoint.save(channel_url, completed)
         next_index += 1
         indexed += 1
+    # A zero-post result is still a completed observation. Persist an empty
+    # checkpoint so "checked and empty" is distinguishable from "never run".
+    if not posts:
+        checkpoint.save(channel_url, completed)
     return YouTubePostIngestionResult(
         channel_id=channel_id,
         channel_title=channel_title,

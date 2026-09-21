@@ -623,6 +623,14 @@ class WarrigalRepository:
             """,
             (method,),
         ).fetchall()
+
+    def get_acquisition(self, acquisition_id: str) -> sqlite3.Row | None:
+        """Return one acquisition provenance record by identifier."""
+
+        return self.connection.execute(
+            "SELECT * FROM acquisitions WHERE acquisition_id = ?",
+            (acquisition_id,),
+        ).fetchone()
     
     def get_acquisitions_for_object(
         self,
