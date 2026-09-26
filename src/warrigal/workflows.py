@@ -51,6 +51,11 @@ WEBSITE_ACTIONS = (
     "Crawl up to 10 same-site pages",
 )
 
+LOCAL_DOCUMENT_ACTIONS = (
+    "Ingest one PDF",
+    "Ingest a folder of PDFs",
+)
+
 
 @dataclass(frozen=True)
 class WorkflowStep:
@@ -85,6 +90,7 @@ def actions_for(source_type: str) -> tuple[str, ...]:
             "Instagram": INSTAGRAM_ACTIONS,
             "YouTube": YOUTUBE_ACTIONS,
             "Website": WEBSITE_ACTIONS,
+            "Local Documents": LOCAL_DOCUMENT_ACTIONS,
         }[source_type]
     except KeyError as exc:
         raise ValueError(f"Unsupported source type: {source_type}") from exc
@@ -187,6 +193,40 @@ def _website_plan(target: str, action: str, config: WarrigalConfig) -> WorkflowP
     return WorkflowPlan("Website", target, action, (commands[action],))
 
 
+def _local_document_plan(target: str, action: str) -> WorkflowPlan:
+    target = target.strip()
+    if not target:
+        raise ValueError("Choose a local PDF file or folder.")
+    path = Path(target).expanduser()
+    if action == "Ingest one PDF":
+        if path.is_dir():
+            raise ValueError(
+                "Choose a single PDF file, not a folder, for 'Ingest one PDF'."
+            )
+        if path.suffix.lower() != ".pdf":
+            raise ValueError("Choose a .pdf file for 'Ingest one PDF'.")
+        return WorkflowPlan(
+            "Local Documents", str(path), action,
+            (_step(
+                "Ingesting one local PDF",
+                sys.executable, "-m", "warrigal.cli", "ingest-pdf", str(path),
+            ),),
+        )
+    if action == "Ingest a folder of PDFs":
+        if path.is_file():
+            raise ValueError(
+                "Choose a folder, not a single file, for 'Ingest a folder of PDFs'."
+            )
+        return WorkflowPlan(
+            "Local Documents", str(path), action,
+            (_step(
+                "Ingesting a folder of local PDFs",
+                sys.executable, "-m", "warrigal.cli", "ingest-archive", str(path),
+            ),),
+        )
+    raise ValueError("Choose a Local Documents action.")
+
+
 def build_workflow_plan(
     source_type: str,
     target: str,
@@ -212,4 +252,6 @@ def build_workflow_plan(
         )
     if source_type == "Website":
         return _website_plan(target, action, config)
+    if source_type == "Local Documents":
+        return _local_document_plan(target, action)
     raise ValueError(f"Unsupported source type: {source_type}")

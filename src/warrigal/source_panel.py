@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from warrigal.config import CONFIG
 from warrigal.workflows import (
@@ -71,6 +71,10 @@ def build_website_commands(target: str, action: str) -> list[tuple[str, list[str
     return build_workflow_plan("Website", target, action).panel_commands()
 
 
+def build_local_document_commands(target: str, action: str) -> list[tuple[str, list[str]]]:
+    return build_workflow_plan("Local Documents", target, action).panel_commands()
+
+
 class SourcePanel(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -112,7 +116,7 @@ class SourcePanel(tk.Tk):
         source_box = ttk.Combobox(
             form,
             textvariable=self.source_type,
-            values=("Instagram", "YouTube", "Website"),
+            values=("Instagram", "YouTube", "Website", "Local Documents"),
             state="readonly",
             width=24,
         )
@@ -122,6 +126,15 @@ class SourcePanel(tk.Tk):
         ttk.Label(form, text="Name or URL").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=6)
         self.target_entry = ttk.Entry(form, textvariable=self.target)
         self.target_entry.grid(row=1, column=1, sticky="ew", pady=6)
+
+        self.browse_frame = ttk.Frame(form)
+        self.browse_frame.grid(row=1, column=2, sticky="w", padx=(8, 0), pady=6)
+        ttk.Button(
+            self.browse_frame, text="Choose file…", command=self._choose_file
+        ).pack(side="left", padx=(0, 4))
+        ttk.Button(
+            self.browse_frame, text="Choose folder…", command=self._choose_folder
+        ).pack(side="left")
 
         ttk.Label(form, text="Action").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=6)
         self.action_box = ttk.Combobox(form, textvariable=self.action, state="readonly")
@@ -182,6 +195,10 @@ class SourcePanel(tk.Tk):
             self.youtube_limits.grid()
         else:
             self.youtube_limits.grid_remove()
+        if source == "Local Documents":
+            self.browse_frame.grid()
+        else:
+            self.browse_frame.grid_remove()
         self._action_changed()
 
     def _action_changed(self) -> None:
@@ -189,6 +206,16 @@ class SourcePanel(tk.Tk):
             self.action_help.set(YOUTUBE_ACTION_HELP.get(self.action.get(), ""))
         else:
             self.action_help.set("")
+
+    def _choose_file(self) -> None:
+        path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+        if path:
+            self.target.set(path)
+
+    def _choose_folder(self) -> None:
+        path = filedialog.askdirectory()
+        if path:
+            self.target.set(path)
 
     def _youtube_limit(self, value: str, label: str, *, minimum: int = 0) -> int:
         try:
@@ -223,6 +250,8 @@ class SourcePanel(tk.Tk):
                     minimum=1,
                 ),
             )
+        if source == "Local Documents":
+            return build_local_document_commands(self.target.get(), self.action.get())
         return build_website_commands(self.target.get(), self.action.get())
 
     def start(self) -> None:

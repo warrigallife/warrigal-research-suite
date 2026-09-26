@@ -73,7 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show the exact shared workflow plan without running it.",
     )
     plan_source_parser.add_argument(
-        "source_type", choices=("Instagram", "YouTube", "Website")
+        "source_type",
+        choices=("Instagram", "YouTube", "Website", "Local Documents"),
     )
     plan_source_parser.add_argument("target", help="Profile name or source URL.")
     plan_source_parser.add_argument("--action", required=True)
