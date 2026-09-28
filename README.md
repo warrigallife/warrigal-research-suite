@@ -106,6 +106,11 @@ Environment variables override the local TOML values.
 See [Architecture](docs/ARCHITECTURE.md) and
 [Data lifecycle](docs/DATA_LIFECYCLE.md) for the system boundaries.
 
+For collaborators, read the [Current System Report](docs/CURRENT_SYSTEM_REPORT.md)
+and [Future Direction Report](docs/FUTURE_DIRECTION_REPORT.md). The first
+records verified progress and open limitations; the second describes planned
+research, publishing, coordination and specialist integrations.
+
 ## Interfaces
 
 Launch the source-acquisition panel:
