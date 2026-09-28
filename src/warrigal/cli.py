@@ -24,6 +24,11 @@ from warrigal.acquisition.youtube_comment_index import (
     index_archived_youtube_comments,
 )
 from warrigal.acquisition.youtube_posts import ingest_youtube_posts
+from warrigal.acquisition.youtube_post_comments import (
+    ingest_youtube_post_comments,
+    resolve_post_id,
+    run_post_comment_campaign,
+)
 from warrigal.acquisition.youtube_channel_workflow import (
     run_youtube_channel_workflow,
 )
@@ -279,6 +284,71 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="Maximum Community-tab pages requested (default: 20).",
+    )
+
+    post_comments_parser = subparsers.add_parser(
+        "ingest-youtube-post-comments",
+        help="Archive and index one Community post's comment threads.",
+    )
+    post_comments_parser.add_argument(
+        "post",
+        help="Community post ID or its https://www.youtube.com/post/<id> URL.",
+    )
+    post_comments_parser.add_argument(
+        "--checkpoint",
+        required=True,
+        help="JSON checkpoint path used to deduplicate archived comment/reply IDs.",
+    )
+    post_comments_parser.add_argument(
+        "--max-continuation-fetches",
+        type=int,
+        default=None,
+        help=(
+            "Optional safety cap on continuation fetches for this post. "
+            "Default is unlimited. Reaching it marks the post INCOMPLETE, "
+            "never completed."
+        ),
+    )
+
+    post_comments_campaign_parser = subparsers.add_parser(
+        "ingest-youtube-post-comments-campaign",
+        help=(
+            "Refresh the Community-post feed, then archive and index comment "
+            "threads for every post that is not already completed."
+        ),
+    )
+    post_comments_campaign_parser.add_argument(
+        "channel",
+        help="Public YouTube channel /posts URL.",
+    )
+    post_comments_campaign_parser.add_argument(
+        "--posts-checkpoint",
+        required=True,
+        help="Post-listing checkpoint JSON written/refreshed by ingest-youtube-posts.",
+    )
+    post_comments_campaign_parser.add_argument(
+        "--comments-checkpoint",
+        required=True,
+        help="JSON checkpoint path used to deduplicate archived comment/reply IDs.",
+    )
+    post_comments_campaign_parser.add_argument(
+        "--max-continuation-fetches",
+        type=int,
+        default=None,
+        help=(
+            "Optional safety cap on continuation fetches per post. Default "
+            "is unlimited. Reaching it marks that post INCOMPLETE, never "
+            "completed."
+        ),
+    )
+    post_comments_campaign_parser.add_argument(
+        "--skip-completed",
+        action="store_true",
+        help=(
+            "Opt in to skipping posts already marked completed. Default "
+            "behaviour revisits every known post, including previously "
+            "completed ones, so newly added comments/replies are discovered."
+        ),
     )
 
     youtube_channel_parser = subparsers.add_parser(
@@ -1433,6 +1503,149 @@ def run_ingest_youtube_posts(
         db.close()
 
 
+def run_ingest_youtube_post_comments(
+    post: str, *, checkpoint_path: str, max_continuation_fetches: int | None = None
+) -> int:
+    """Archive and index one Community post's top-level comments and replies."""
+
+    if max_continuation_fetches is not None and max_continuation_fetches < 1:
+        raise ValueError("--max-continuation-fetches must be at least 1")
+    post_id = resolve_post_id(post)
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        object_store = ObjectStore()
+        node = Node(name="Warrigal YouTube Post Comments")
+        repository.save_node(node)
+        batch = Batch(node_id=node.node_id, label="YouTube post-comment ingestion")
+        repository.save_batch(batch)
+        job = Job(
+            name="YouTube post-comment ingestion",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+        collection = Collection(
+            name="YouTube Community Post Comment Evidence",
+            description="Public YouTube Community-post comment threads preserved by Warrigal.",
+        )
+        repository.save_collection(collection)
+        result = ingest_youtube_post_comments(
+            post_id,
+            checkpoint_path=checkpoint_path,
+            max_continuation_fetches=max_continuation_fetches,
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+        )
+        print("=== WARRIGAL YOUTUBE POST COMMENTS ===")
+        print(f"POST:              {result.post_id}")
+        print(f"POST URL:          {result.post_url}")
+        print(f"OBJECT:            {result.object_id}")
+        print(f"ACQUISITION:       {result.acquisition_id}")
+        print(f"SHA256:            {result.sha256}")
+        print(f"STATUS:            {result.status}")
+        print(f"REASONS:           {', '.join(result.reasons) or 'none'}")
+        print(f"VISIBLE COUNT:     {result.counts.visible_comment_count}")
+        print(f"VISIBLE BASIS:     {result.counts.visible_count_basis}")
+        print(f"TOP-LEVEL COUNT:   {result.counts.top_level_count}")
+        print(f"REPLY COUNT:       {result.counts.reply_count}")
+        print(f"TOTAL COUNT:       {result.counts.total_count}")
+        print(f"COUNT MATCH:       {result.counts.count_match}")
+        print(f"STABLE-ID COUNT:   {result.identity_coverage.stable_id_count}")
+        print(f"PROVISIONAL COUNT: {result.identity_coverage.unresolved_provisional_count}")
+        print(f"IDENTITY COMPLETE: {result.identity_coverage.stable_id_coverage_complete}")
+        print(f"NEW:               {result.new_count}")
+        print(f"INDEXED:           {result.indexed_count}")
+        print(f"CONFIRMED TOM:     {result.target_author_comment_count}")
+        print(f"DEDUPLICATED:      {result.deduplicated}")
+        if result.status == "failed":
+            return 1
+        if result.status == "incomplete":
+            return 2
+        return 0
+    finally:
+        db.close()
+
+
+def run_ingest_youtube_post_comments_campaign(
+    channel_url: str,
+    *,
+    posts_checkpoint_path: str,
+    comments_checkpoint_path: str,
+    max_continuation_fetches: int | None = None,
+    skip_completed: bool = False,
+) -> int:
+    """Refresh the Community-post feed, then ingest comment threads for
+    every currently-known post. By default, previously completed posts are
+    revisited too; pass skip_completed=True to opt into skipping them."""
+
+    if max_continuation_fetches is not None and max_continuation_fetches < 1:
+        raise ValueError("--max-continuation-fetches must be at least 1")
+
+    db = initialize_database()
+    repository = WarrigalRepository(db)
+    try:
+        object_store = ObjectStore()
+        node = Node(name="Warrigal YouTube Post Comment Campaign")
+        repository.save_node(node)
+        batch = Batch(node_id=node.node_id, label="YouTube post-comment campaign")
+        repository.save_batch(batch)
+        job = Job(
+            name="YouTube post-comment campaign",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
+        collection = Collection(
+            name="YouTube Community Post Comment Evidence",
+            description="Public YouTube Community-post comment threads preserved by Warrigal.",
+        )
+        repository.save_collection(collection)
+        result = run_post_comment_campaign(
+            channel_url,
+            posts_checkpoint_path=posts_checkpoint_path,
+            comments_checkpoint_path=comments_checkpoint_path,
+            max_continuation_fetches=max_continuation_fetches,
+            skip_completed=skip_completed,
+            repository=repository,
+            object_store=object_store,
+            job_id=job.job_id,
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+            collection_id=collection.collection_id,
+        )
+        print("=== WARRIGAL YOUTUBE POST-COMMENT CAMPAIGN ===")
+        print(f"CHANNEL:            {channel_url}")
+        print(f"FEED COVERAGE:      {result.feed_coverage_status}")
+        print(f"FEED REASONS:       {', '.join(result.feed_coverage_reasons) or 'none'}")
+        print(f"KNOWN BEFORE:       {len(result.known_before_refresh)}")
+        print(f"NEWLY DISCOVERED:   {len(result.newly_discovered)}")
+        for post_id in result.newly_discovered:
+            print(f"  NEW POST: {post_id}")
+        print(f"ATTEMPTED:          {len(result.attempted)}")
+        for item in result.items:
+            print(
+                f"{item.status:10} {item.post_id}  "
+                f"new={item.new_count} tom={item.target_author_comment_count} "
+                f"reasons={', '.join(item.reasons) or 'none'}"
+            )
+        print("=== CAMPAIGN COMPLETE ===")
+        print(f"COMPLETED: {len(result.completed)}")
+        print(f"INCOMPLETE:{len(result.incomplete)}")
+        print(f"FAILED:    {len(result.failed)}")
+        if result.failed:
+            return 1
+        if result.incomplete or result.feed_coverage_status == "incomplete":
+            return 2
+        return 0
+    finally:
+        db.close()
+
+
 def run_find_youtube_comment_authors(query: str) -> int:
     """Find identities represented in locally indexed YouTube comments."""
 
@@ -1869,6 +2082,22 @@ def main() -> int:
             checkpoint_path=args.checkpoint,
             max_posts=args.max_posts,
             max_pages=args.max_pages,
+        )
+
+    if args.command == "ingest-youtube-post-comments":
+        return run_ingest_youtube_post_comments(
+            args.post,
+            checkpoint_path=args.checkpoint,
+            max_continuation_fetches=args.max_continuation_fetches,
+        )
+
+    if args.command == "ingest-youtube-post-comments-campaign":
+        return run_ingest_youtube_post_comments_campaign(
+            args.channel,
+            posts_checkpoint_path=args.posts_checkpoint,
+            comments_checkpoint_path=args.comments_checkpoint,
+            max_continuation_fetches=args.max_continuation_fetches,
+            skip_completed=args.skip_completed,
         )
 
     if args.command == "find-youtube-comment-authors":
