@@ -29,6 +29,7 @@ from warrigal.acquisition.youtube_post_comments import (
     resolve_post_id,
     run_post_comment_campaign,
 )
+from warrigal.acquisition.youtube_brave_cdp_transport import acquisition_cdp_runners
 from warrigal.acquisition.youtube_channel_workflow import (
     run_youtube_channel_workflow,
 )
@@ -1530,17 +1531,19 @@ def run_ingest_youtube_post_comments(
             description="Public YouTube Community-post comment threads preserved by Warrigal.",
         )
         repository.save_collection(collection)
-        result = ingest_youtube_post_comments(
-            post_id,
-            checkpoint_path=checkpoint_path,
-            max_continuation_fetches=max_continuation_fetches,
-            repository=repository,
-            object_store=object_store,
-            job_id=job.job_id,
-            node_id=node.node_id,
-            batch_id=batch.batch_id,
-            collection_id=collection.collection_id,
-        )
+        with acquisition_cdp_runners() as cdp:
+            result = ingest_youtube_post_comments(
+                post_id,
+                checkpoint_path=checkpoint_path,
+                max_continuation_fetches=max_continuation_fetches,
+                repository=repository,
+                object_store=object_store,
+                job_id=job.job_id,
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+                collection_id=collection.collection_id,
+                extractor=cdp.comment_extractor,
+            )
         print("=== WARRIGAL YOUTUBE POST COMMENTS ===")
         print(f"POST:              {result.post_id}")
         print(f"POST URL:          {result.post_url}")
@@ -1605,19 +1608,22 @@ def run_ingest_youtube_post_comments_campaign(
             description="Public YouTube Community-post comment threads preserved by Warrigal.",
         )
         repository.save_collection(collection)
-        result = run_post_comment_campaign(
-            channel_url,
-            posts_checkpoint_path=posts_checkpoint_path,
-            comments_checkpoint_path=comments_checkpoint_path,
-            max_continuation_fetches=max_continuation_fetches,
-            skip_completed=skip_completed,
-            repository=repository,
-            object_store=object_store,
-            job_id=job.job_id,
-            node_id=node.node_id,
-            batch_id=batch.batch_id,
-            collection_id=collection.collection_id,
-        )
+        with acquisition_cdp_runners() as cdp:
+            result = run_post_comment_campaign(
+                channel_url,
+                posts_checkpoint_path=posts_checkpoint_path,
+                comments_checkpoint_path=comments_checkpoint_path,
+                max_continuation_fetches=max_continuation_fetches,
+                skip_completed=skip_completed,
+                repository=repository,
+                object_store=object_store,
+                job_id=job.job_id,
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+                collection_id=collection.collection_id,
+                comment_extractor=cdp.comment_extractor,
+                post_feed_refresher=cdp.post_feed_refresher,
+            )
         print("=== WARRIGAL YOUTUBE POST-COMMENT CAMPAIGN ===")
         print(f"CHANNEL:            {channel_url}")
         print(f"FEED COVERAGE:      {result.feed_coverage_status}")

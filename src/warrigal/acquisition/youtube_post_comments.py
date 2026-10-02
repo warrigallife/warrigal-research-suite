@@ -390,6 +390,8 @@ _POST_COMMENTS_BOOTSTRAP_JS = r"""
   window.__wrgNonProductiveClicks = 0;
   window.__wrgRounds = 0;
   window.__wrgStartTime = Date.now();
+  window.__wrgPreviousSignature = null;
+  window.__wrgPendingReplyClick = false;
 
   const commentText = (node) => {
     const el = node.querySelector('#content-text');
@@ -471,9 +473,16 @@ _POST_COMMENTS_BOOTSTRAP_JS = r"""
   window.__wrgCollectThread = (node, order) => collect(node, null, order);
   window.__wrgCollectReply = (node, parentId, order) => collect(node, parentId, order);
 
+  window.__wrgReplyButtons = () => Array.from(document.querySelectorAll(
+    'ytd-comment-replies-renderer #more-replies button, '
+    + 'ytd-comment-replies-renderer #more-replies-button, '
+    + 'ytd-comment-replies-renderer #expander button'
+  )).filter(el => el.getClientRects().length > 0
+    && !el.closest('[hidden], [aria-hidden="true"]') && !el.disabled);
+
   window.__wrgSignature = () => (
     document.querySelectorAll('ytd-comment-thread-renderer').length
-    + ':' + document.querySelectorAll('ytd-comment-renderer').length
+    + ':' + document.querySelectorAll('ytd-comment-renderer, ytd-comment-view-model').length
   );
 
   return 'OK';
@@ -487,33 +496,33 @@ _POST_COMMENTS_ADVANCE_JS = r"""
     return 'DONE';
   }
 
-  const before = window.__wrgSignature();
-  const moreReplies = document.querySelector(
-    'ytd-comment-replies-renderer #more-replies button, '
-    + 'ytd-comment-replies-renderer #more-replies-button'
-  );
+  // Compare with the previous round AFTER the AppleScript delay, allowing
+  // asynchronous reply loading to change the DOM before judging progress.
+  const signature = window.__wrgSignature();
+  if (window.__wrgPreviousSignature !== null) {
+    if (signature !== window.__wrgPreviousSignature) {
+      window.__wrgIdle = 0;
+      window.__wrgNonProductiveClicks = 0;
+    } else if (window.__wrgPendingReplyClick) {
+      window.__wrgNonProductiveClicks += 1;
+    } else {
+      window.__wrgIdle += 1;
+    }
+  }
+  window.__wrgPreviousSignature = signature;
 
+  const buttons = window.__wrgReplyButtons();
+  if (buttons.length && window.__wrgNonProductiveClicks >= 3) return 'DONE';
+  if (!buttons.length && window.__wrgIdle >= 3) return 'DONE';
+
+  const moreReplies = buttons[0];
+  window.__wrgPendingReplyClick = !!moreReplies;
   if (moreReplies) {
     moreReplies.click();
   } else {
     window.scrollTo(0, document.documentElement.scrollHeight);
   }
-
-  const after = window.__wrgSignature();
-  if (after !== before) {
-    window.__wrgIdle = 0;
-    window.__wrgNonProductiveClicks = 0;
-    return 'CONTINUE';
-  }
-
-  if (moreReplies) {
-    window.__wrgNonProductiveClicks += 1;
-    if (window.__wrgNonProductiveClicks >= 3) return 'DONE';
-    return 'CONTINUE';
-  }
-
-  window.__wrgIdle += 1;
-  return window.__wrgIdle >= 3 ? 'DONE' : 'CONTINUE';
+  return 'CONTINUE';
 })();
 """
 
@@ -541,17 +550,15 @@ _POST_COMMENTS_FINALIZE_JS = r"""
     round_limit_reached: !!window.__wrgRoundLimitReached,
     wall_clock_exceeded: !!window.__wrgWallClockExceeded,
     top_level_stalled: (window.__wrgIdle || 0) >= 3 && !window.__wrgRoundLimitReached && !window.__wrgWallClockExceeded,
-    reply_expansion_incomplete: !!document.querySelector(
-      'ytd-comment-replies-renderer #more-replies button, '
-      + 'ytd-comment-replies-renderer #more-replies-button'
-    ) || (window.__wrgNonProductiveClicks || 0) >= 3,
+    reply_expansion_incomplete: window.__wrgReplyButtons().length > 0,
     comments: [],
   };
 
   const threads = document.querySelectorAll('ytd-comment-thread-renderer');
   threads.forEach((thread, index) => {
     result.comments.push(window.__wrgCollectThread(thread, index));
-    const replies = thread.querySelectorAll('ytd-comment-replies-renderer ytd-comment-renderer');
+    const replies = thread.querySelectorAll('ytd-comment-replies-renderer ytd-comment-renderer, '
+      + 'ytd-comment-replies-renderer ytd-comment-view-model');
     const parentId = result.comments[result.comments.length - 1].id;
     replies.forEach((reply, replyIndex) => {
       result.comments.push(window.__wrgCollectReply(reply, parentId, replyIndex));
@@ -562,66 +569,121 @@ _POST_COMMENTS_FINALIZE_JS = r"""
 })();
 """
 
-POST_COMMENTS_APPLESCRIPT = r'''
+# Pure, Brave-independent text logic -- deliberately factored out of the
+# tab-handling handlers below so the dedicated-tab identity check itself
+# (not just its presence) can be executed and verified directly via
+# `osascript`, with no running browser required.
+_EXTRACT_POST_ID_APPLESCRIPT = r'''
+on extractPostId(theURL)
+    set cleanURL to theURL
+    if cleanURL contains "?" then
+        set AppleScript's text item delimiters to "?"
+        set cleanURL to item 1 of (text items of cleanURL)
+    end if
+    if cleanURL contains "#" then
+        set AppleScript's text item delimiters to "#"
+        set cleanURL to item 1 of (text items of cleanURL)
+    end if
+    set AppleScript's text item delimiters to ""
+    if cleanURL ends with "/" then
+        set cleanURL to text 1 thru -2 of cleanURL
+    end if
+    set AppleScript's text item delimiters to "/"
+    set lastPart to item -1 of (text items of cleanURL)
+    set AppleScript's text item delimiters to ""
+    return lastPart
+end extractPostId
+
+on urlMatchesExpectedPost(currentURL, expectedPostId)
+    if currentURL does not start with "https://www.youtube.com/post/" then return false
+    return (my extractPostId(currentURL)) is expectedPostId
+end urlMatchesExpectedPost
+'''
+
+POST_COMMENTS_APPLESCRIPT = _EXTRACT_POST_ID_APPLESCRIPT + r'''
+on resolveDedicatedTab(wantedWindowId)
+    -- Addressed directly by window id -- never a scan over every window and
+    -- every tab of every window, which races against unrelated tabs opening
+    -- or closing elsewhere in the same Brave process (e.g. the user's own
+    -- browsing) and can throw spurious "invalid index" errors that have
+    -- nothing to do with this collection's own isolated window.
+    tell application "Brave Browser"
+        try
+            return active tab of (window id wantedWindowId)
+        on error
+            error "Warrigal's isolated collection window was closed or lost during collection"
+        end try
+    end tell
+end resolveDedicatedTab
+
+on verifyDedicatedTabOnTarget(wantedWindowId, expectedPostId, stageLabel)
+    set theTab to my resolveDedicatedTab(wantedWindowId)
+    tell application "Brave Browser" to set currentURL to URL of theTab
+    if not (my urlMatchesExpectedPost(currentURL, expectedPostId)) then
+        error "Brave tab navigated away from the target post (" & stageLabel & "): expected post " & expectedPostId & " but the tab is now at " & currentURL
+    end if
+end verifyDedicatedTabOnTarget
+
 on run argv
     set postURL to item 1 of argv
     set maximumRounds to (item 2 of argv) as integer
     set wallClockSeconds to (item 3 of argv) as integer
+    set expectedPostId to my extractPostId(postURL)
+
+    if application "Brave Browser" is not running then error "BRAVE NOT RUNNING"
 
     tell application "Brave Browser"
-        if (count windows) = 0 then error "NO BRAVE WINDOW"
+        -- Always a brand-new, isolated window dedicated to this one
+        -- collection run -- never a scan over existing windows/tabs, so a
+        -- personal tab (even one already on YouTube) is never reused or
+        -- navigated. Never activated, so it never comes to the foreground.
+        set dedicatedWindow to make new window
+        set dedicatedWindowId to id of dedicatedWindow
+        set URL of (active tab of dedicatedWindow) to postURL
 
-        set targetTab to missing value
+        try
+            delay 6
 
-        repeat with windowNumber from 1 to count windows
-            repeat with tabNumber from 1 to count tabs of window windowNumber
-                set candidateTab to tab tabNumber of window windowNumber
+            my verifyDedicatedTabOnTarget(dedicatedWindowId, expectedPostId, "before bootstrap")
 
-                if URL of candidateTab contains "youtube.com" then
-                    set targetTab to candidateTab
-                    set active tab index of window windowNumber to tabNumber
-                    set index of window windowNumber to 1
-                    exit repeat
-                end if
+            set targetTab to my resolveDedicatedTab(dedicatedWindowId)
+            set bootstrapped to execute targetTab javascript BOOTSTRAP_PLACEHOLDER
+
+            if bootstrapped is not "OK" then error bootstrapped
+
+            execute targetTab javascript ("window.__wrgWallClockBudgetMs = " & (wallClockSeconds * 1000) & ";")
+
+            set roundsUsed to 0
+            set roundLimitReached to false
+
+            repeat with roundNumber from 1 to maximumRounds
+                set roundsUsed to roundNumber
+                my verifyDedicatedTabOnTarget(dedicatedWindowId, expectedPostId, "round " & roundNumber)
+                set targetTab to my resolveDedicatedTab(dedicatedWindowId)
+                set advanced to execute targetTab javascript ADVANCE_PLACEHOLDER
+                if advanced is "DONE" then exit repeat
+                delay 2
             end repeat
 
-            if targetTab is not missing value then exit repeat
-        end repeat
+            if roundsUsed is maximumRounds then
+                set roundLimitReached to true
+                set targetTab to my resolveDedicatedTab(dedicatedWindowId)
+                execute targetTab javascript "window.__wrgRoundLimitReached = true;"
+            end if
 
-        if targetTab is missing value then
-            set targetTab to make new tab at end of tabs of front window with properties {URL:postURL}
-            set active tab index of front window to count tabs of front window
-        else
-            set URL of targetTab to postURL
-        end if
+            my verifyDedicatedTabOnTarget(dedicatedWindowId, expectedPostId, "before extraction")
+            set targetTab to my resolveDedicatedTab(dedicatedWindowId)
+            execute targetTab javascript ("window.__wrgRounds = " & roundsUsed & ";")
 
-        activate
-        delay 6
-
-        set bootstrapped to execute targetTab javascript BOOTSTRAP_PLACEHOLDER
-
-        if bootstrapped is not "OK" then error bootstrapped
-
-        execute targetTab javascript ("window.__wrgWallClockBudgetMs = " & (wallClockSeconds * 1000) & ";")
-
-        set roundsUsed to 0
-        set roundLimitReached to false
-
-        repeat with roundNumber from 1 to maximumRounds
-            set roundsUsed to roundNumber
-            set advanced to execute targetTab javascript ADVANCE_PLACEHOLDER
-            if advanced is "DONE" then exit repeat
-            delay 2
-        end repeat
-
-        if roundsUsed is maximumRounds then
-            set roundLimitReached to true
-            execute targetTab javascript "window.__wrgRoundLimitReached = true;"
-        end if
-
-        execute targetTab javascript ("window.__wrgRounds = " & roundsUsed & ";")
-
-        return execute targetTab javascript FINALIZE_PLACEHOLDER
+            set finalResult to execute targetTab javascript FINALIZE_PLACEHOLDER
+            close dedicatedWindow
+            return finalResult
+        on error errMsg
+            try
+                close dedicatedWindow
+            end try
+            error errMsg
+        end try
     end tell
 end run
 '''.replace(
@@ -876,36 +938,34 @@ RESOLVE_HANDLE_APPLESCRIPT = r'''
 on run argv
     set handleURL to item 1 of argv
 
+    if application "Brave Browser" is not running then error "BRAVE NOT RUNNING"
+
     tell application "Brave Browser"
-        if (count windows) = 0 then error "NO BRAVE WINDOW"
+        -- A brand-new, isolated window dedicated to this one resolution --
+        -- never a scan over existing windows/tabs, and never activated, so
+        -- a personal tab is never reused/navigated and nothing comes to
+        -- the foreground.
+        set dedicatedWindow to make new window
+        set dedicatedTab to active tab of dedicatedWindow
+        set URL of dedicatedTab to handleURL
 
-        set targetTab to missing value
+        try
+            delay 5
 
-        repeat with windowNumber from 1 to count windows
-            repeat with tabNumber from 1 to count tabs of window windowNumber
-                set candidateTab to tab tabNumber of window windowNumber
+            set currentURL to URL of dedicatedTab
+            if currentURL does not start with "https://www.youtube.com/" and currentURL does not start with "https://youtube.com/" then
+                error "Brave tab navigated away from YouTube during handle resolution: now at " & currentURL
+            end if
 
-                if URL of candidateTab contains "youtube.com" then
-                    set targetTab to candidateTab
-                    set active tab index of window windowNumber to tabNumber
-                    set index of window windowNumber to 1
-                    exit repeat
-                end if
-            end repeat
-
-            if targetTab is not missing value then exit repeat
-        end repeat
-
-        if targetTab is missing value then
-            set targetTab to make new tab at end of tabs of front window with properties {URL:handleURL}
-            set active tab index of front window to count tabs of front window
-        else
-            set URL of targetTab to handleURL
-        end if
-
-        delay 5
-
-        return execute targetTab javascript RESOLVE_JS_PLACEHOLDER
+            set result to execute dedicatedTab javascript RESOLVE_JS_PLACEHOLDER
+            close dedicatedWindow
+            return result
+        on error errMsg
+            try
+                close dedicatedWindow
+            end try
+            error errMsg
+        end try
     end tell
 end run
 '''.replace("RESOLVE_JS_PLACEHOLDER", json.dumps(_RESOLVE_HANDLE_JS))
@@ -1064,56 +1124,75 @@ on run argv
     set stableRounds to 0
     set stabilized to false
 
-    tell application "Brave Browser"
-        activate
+    if application "Brave Browser" is not running then error "BRAVE NOT RUNNING"
 
+    tell application "Brave Browser"
+        -- A brand-new, isolated window dedicated to this one discovery run
+        -- -- never a scan over existing windows/tabs, and never activated,
+        -- so a personal tab is never reused/navigated and nothing comes to
+        -- the foreground.
         set targetWindow to make new window
         set targetTab to active tab of targetWindow
         set URL of targetTab to channelURL
-        delay 6
 
-        repeat with roundNumber from 1 to maximumScrolls
-            set payload to execute targetTab javascript "
-                JSON.stringify(
-                    Array.from(document.querySelectorAll('a[href*=\"/post/\"]'))
-                        .map(a => a.href)
-                )
-            "
-            set end of snapshots to payload
+        try
+            delay 6
 
-            set currentHeight to execute targetTab javascript "
-                Math.max(
-                    document.body.scrollHeight,
-                    document.documentElement.scrollHeight
-                ).toString()
-            "
-
-            if currentHeight is previousHeight then
-                set stableRounds to stableRounds + 1
-            else
-                set stableRounds to 0
+            set currentURL to URL of targetTab
+            if currentURL does not start with "https://www.youtube.com/" and currentURL does not start with "https://youtube.com/" then
+                error "Brave tab navigated away from YouTube during Community-post discovery: now at " & currentURL
             end if
 
-            if stableRounds is greater than or equal to stableLimit then
-                set stabilized to true
-                exit repeat
-            end if
+            repeat with roundNumber from 1 to maximumScrolls
+                set payload to execute targetTab javascript "
+                    JSON.stringify(
+                        Array.from(document.querySelectorAll('a[href*=\"/post/\"]'))
+                            .map(a => a.href)
+                    )
+                "
+                set end of snapshots to payload
 
-            set previousHeight to currentHeight
-
-            execute targetTab javascript "
-                window.scrollTo(
-                    0,
+                set currentHeight to execute targetTab javascript "
                     Math.max(
                         document.body.scrollHeight,
                         document.documentElement.scrollHeight
-                    )
-                );
-                'scrolled';
-            "
+                    ).toString()
+                "
 
-            delay pauseSeconds
-        end repeat
+                if currentHeight is previousHeight then
+                    set stableRounds to stableRounds + 1
+                else
+                    set stableRounds to 0
+                end if
+
+                if stableRounds is greater than or equal to stableLimit then
+                    set stabilized to true
+                    exit repeat
+                end if
+
+                set previousHeight to currentHeight
+
+                execute targetTab javascript "
+                    window.scrollTo(
+                        0,
+                        Math.max(
+                            document.body.scrollHeight,
+                            document.documentElement.scrollHeight
+                        )
+                    );
+                    'scrolled';
+                "
+
+                delay pauseSeconds
+            end repeat
+
+            close targetWindow
+        on error errMsg
+            try
+                close targetWindow
+            end try
+            error errMsg
+        end try
     end tell
 
     set oldDelimiters to AppleScript's text item delimiters

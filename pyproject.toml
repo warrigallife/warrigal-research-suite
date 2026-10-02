@@ -11,6 +11,8 @@ dependencies = [
     "crawlee[beautifulsoup]",
     "pypdf",
     "yt-dlp",
+    "requests",
+    "websocket-client",
 ]
 
 [tool.setuptools.packages.find]

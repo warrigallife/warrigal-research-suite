@@ -142,10 +142,11 @@ class YouTubePostCommentsCLITests(unittest.TestCase):
 
         database.assert_not_called()
 
+    @patch("warrigal.cli.acquisition_cdp_runners")
     @patch("warrigal.cli.initialize_database")
     @patch("warrigal.cli.ingest_youtube_post_comments")
     def test_single_post_incomplete_returns_distinct_nonzero_exit_code(
-        self, ingest, database
+        self, ingest, database, cdp_runners
     ):
         from types import SimpleNamespace
 
@@ -181,9 +182,10 @@ class YouTubePostCommentsCLITests(unittest.TestCase):
 
         self.assertEqual(result, 2)
 
+    @patch("warrigal.cli.acquisition_cdp_runners")
     @patch("warrigal.cli.initialize_database")
     @patch("warrigal.cli.ingest_youtube_post_comments")
-    def test_single_post_failed_returns_one(self, ingest, database):
+    def test_single_post_failed_returns_one(self, ingest, database, cdp_runners):
         from types import SimpleNamespace
 
         database.return_value.close = lambda: None
@@ -218,10 +220,11 @@ class YouTubePostCommentsCLITests(unittest.TestCase):
 
         self.assertEqual(result, 1)
 
+    @patch("warrigal.cli.acquisition_cdp_runners")
     @patch("warrigal.cli.initialize_database")
     @patch("warrigal.cli.run_post_comment_campaign")
     def test_campaign_incomplete_returns_distinct_nonzero_exit_code(
-        self, campaign, database
+        self, campaign, database, cdp_runners
     ):
         from types import SimpleNamespace
 
@@ -254,10 +257,11 @@ class YouTubePostCommentsCLITests(unittest.TestCase):
 
         self.assertEqual(result, 2)
 
+    @patch("warrigal.cli.acquisition_cdp_runners")
     @patch("warrigal.cli.initialize_database")
     @patch("warrigal.cli.run_post_comment_campaign")
     def test_campaign_with_incomplete_feed_coverage_returns_distinct_nonzero_exit_code(
-        self, campaign, database
+        self, campaign, database, cdp_runners
     ):
         from types import SimpleNamespace
 
@@ -290,10 +294,11 @@ class YouTubePostCommentsCLITests(unittest.TestCase):
 
         self.assertEqual(result, 2)
 
+    @patch("warrigal.cli.acquisition_cdp_runners")
     @patch("warrigal.cli.initialize_database")
     @patch("warrigal.cli.run_post_comment_campaign")
     def test_campaign_with_failure_returns_one_even_if_others_incomplete(
-        self, campaign, database
+        self, campaign, database, cdp_runners
     ):
         from types import SimpleNamespace
 
@@ -318,9 +323,10 @@ class YouTubePostCommentsCLITests(unittest.TestCase):
 
         self.assertEqual(result, 1)
 
+    @patch("warrigal.cli.acquisition_cdp_runners")
     @patch("warrigal.cli.initialize_database")
     def test_campaign_with_no_checkpointed_posts_and_no_refresh_still_touches_database(
-        self, database
+        self, database, cdp_runners
     ):
         # The campaign now always refreshes first (authenticated feed
         # discovery), so it always initializes the database, unlike the
@@ -341,6 +347,89 @@ class YouTubePostCommentsCLITests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         database.assert_called_once()
+
+    @patch("warrigal.cli.acquisition_cdp_runners")
+    @patch("warrigal.cli.initialize_database")
+    @patch("warrigal.cli.ingest_youtube_post_comments")
+    def test_single_post_entry_point_is_wired_to_the_cdp_extractor(
+        self, ingest, database, cdp_runners
+    ):
+        from types import SimpleNamespace
+
+        database.return_value.close = lambda: None
+        sentinel_extractor = object()
+        cdp_runners.return_value.__enter__.return_value = SimpleNamespace(
+            comment_extractor=sentinel_extractor
+        )
+        ingest.return_value = SimpleNamespace(
+            post_id="P1",
+            post_url="https://www.youtube.com/post/P1",
+            object_id="O",
+            acquisition_id="A",
+            sha256="a" * 64,
+            counts=SimpleNamespace(
+                visible_comment_count=None,
+                visible_count_basis="unavailable",
+                top_level_count=0,
+                reply_count=0,
+                total_count=0,
+                count_match="unknown",
+            ),
+            identity_coverage=SimpleNamespace(
+                stable_id_count=0,
+                unresolved_provisional_count=0,
+                stable_id_coverage_complete=True,
+            ),
+            new_count=0,
+            indexed_count=0,
+            target_author_comment_count=0,
+            deduplicated=False,
+            status="completed",
+            reasons=(),
+        )
+
+        run_ingest_youtube_post_comments("P1", checkpoint_path="c.json")
+
+        self.assertIs(ingest.call_args.kwargs["extractor"], sentinel_extractor)
+        cdp_runners.return_value.__enter__.assert_called_once()
+        cdp_runners.return_value.__exit__.assert_called_once()
+
+    @patch("warrigal.cli.acquisition_cdp_runners")
+    @patch("warrigal.cli.initialize_database")
+    @patch("warrigal.cli.run_post_comment_campaign")
+    def test_campaign_entry_point_is_wired_to_the_cdp_extractor_and_refresher(
+        self, campaign, database, cdp_runners
+    ):
+        from types import SimpleNamespace
+
+        database.return_value.close = lambda: None
+        sentinel_extractor = object()
+        sentinel_refresher = object()
+        cdp_runners.return_value.__enter__.return_value = SimpleNamespace(
+            comment_extractor=sentinel_extractor, post_feed_refresher=sentinel_refresher
+        )
+        campaign.return_value = SimpleNamespace(
+            known_before_refresh=(),
+            newly_discovered=(),
+            attempted=(),
+            items=(),
+            feed_coverage_status="complete",
+            feed_coverage_reasons=(),
+            completed=(),
+            incomplete=(),
+            failed=(),
+        )
+
+        run_ingest_youtube_post_comments_campaign(
+            "https://www.youtube.com/@TFJ7/posts",
+            posts_checkpoint_path="posts.json",
+            comments_checkpoint_path="comments.json",
+        )
+
+        self.assertIs(campaign.call_args.kwargs["comment_extractor"], sentinel_extractor)
+        self.assertIs(campaign.call_args.kwargs["post_feed_refresher"], sentinel_refresher)
+        cdp_runners.return_value.__enter__.assert_called_once()
+        cdp_runners.return_value.__exit__.assert_called_once()
 
 
 if __name__ == "__main__":
