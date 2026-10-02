@@ -9,10 +9,12 @@ can always be traced back to preserved source material.
 ## Layers
 
 1. **Acquire** — adapters obtain public web resources, social-source evidence,
-   local documents, audio and video. Where a source requires a signed-in
-   session to render its content, acquisition drives a dedicated, isolated
-   browser profile rather than any personal browsing session, and never
-   reads, stores or copies its authentication material.
+   local documents, audio and video. For the implemented YouTube
+   Community-post pathway specifically, where the source requires a
+   signed-in session to render its content, acquisition drives a dedicated,
+   isolated browser profile rather than any personal browsing session, and
+   never reads, stores or copies its authentication material. This isolated
+   pattern is not yet universal across every authenticated-source adapter.
 2. **Preserve** — exact bytes enter the content-addressed object store; SQLite
    records their origin and acquisition event.
 3. **Extract** — readable text, transcript units, comments, frames and visual
@@ -38,7 +40,7 @@ can always be traced back to preserved source material.
 | Human-readable copies | Published collection folders |
 | Machine-local paths/tools/models | `warrigal.local.toml` or environment overrides |
 | Versioned application behavior | Git repository |
-| Authenticated session material (cookies/tokens) | Dedicated, isolated acquisition browser profile; never read or copied by Warrigal |
+| Authenticated session material (cookies/tokens) | Dedicated, isolated acquisition browser profile (YouTube Community-post pathway); never read or copied by Warrigal |
 
 Published folders are projections. Deleting a published copy must not be
 treated as deleting canonical evidence. Conversely, copying a file into a

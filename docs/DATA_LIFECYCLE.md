@@ -54,8 +54,11 @@ and an empty or partial result must never be read as evidence that source
 content was removed or changed.
 
 All acquisition runs, campaigns and refreshes in this codebase are manually
-initiated — through the CLI or the source panel — and there is currently no
-automatic or scheduled trigger that runs them on their own. Where a campaign
+initiated — through the CLI or the source panel. There is no automatic or
+scheduled trigger within this repository's own code that runs them on its
+own; whether any external automation (for example, a system scheduler
+outside this codebase) invokes these commands has not been verified here.
+Where a campaign
 command performs a refresh step (for example, checking a source for newly
 available items before processing known ones), that refresh happens once,
 as part of that manual invocation; it is not an independent, recurring
