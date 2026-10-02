@@ -32,8 +32,9 @@ are not replacements for the archive.
 | `archive/objects/` | Default content-addressed object-store path |
 | `docs/` | Operating and architecture documentation |
 
-On Liam's Mac, `workspace` and `archive` may be symbolic links into the
-canonical `INFORMATION_ARCHIVE`. Warrigal Doctor reports the resolved targets.
+On a given machine, `workspace` and `archive` may be symbolic links into a
+canonical information archive maintained outside this repository. Warrigal
+Doctor reports the resolved targets.
 
 ## Initial setup
 
@@ -149,7 +150,7 @@ Preview the panel's exact plan without running any command:
 
 ```bash
 python -m warrigal.cli plan-source YouTube \
-  "https://www.youtube.com/@DutchUncleJohn" \
+  "https://www.youtube.com/@<channel-handle>" \
   --action "Discover channel inventory"
 ```
 
