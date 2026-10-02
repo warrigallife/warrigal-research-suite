@@ -52,6 +52,19 @@ Warrigal also uses local executables for particular workflows:
 - `qpdf` for damaged-PDF repair
 - `llama-cli` for configured local visual models
 
+YouTube Community-post comment acquisition drives a separate, dedicated Brave
+profile (`~/Library/Application Support/Warrigal/acquisition-brave-profile`)
+over the Chrome DevTools Protocol — never the personal browser, never its
+cookies. That profile must be signed in once, by hand, before first use:
+
+```bash
+"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" \
+  --user-data-dir="$HOME/Library/Application Support/Warrigal/acquisition-brave-profile" \
+  --no-first-run --no-default-browser-check "https://www.youtube.com/"
+```
+
+Sign in, then fully quit that Brave window before running any acquisition.
+
 Run the read-only system check before acquisition:
 
 ```bash
@@ -104,7 +117,9 @@ For persistent settings on one Mac, copy `warrigal.local.toml.example` to
 Environment variables override the local TOML values.
 
 See [Architecture](docs/ARCHITECTURE.md) and
-[Data lifecycle](docs/DATA_LIFECYCLE.md) for the system boundaries.
+[Data lifecycle](docs/DATA_LIFECYCLE.md) for the system boundaries, and the
+[project vision](docs/Warrigal_Research_Suite_Project_Vision.docx) for the
+intended research experience and direction this suite is being built toward.
 
 ## Interfaces
 

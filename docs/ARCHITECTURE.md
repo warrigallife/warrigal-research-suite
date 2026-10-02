@@ -9,12 +9,20 @@ can always be traced back to preserved source material.
 ## Layers
 
 1. **Acquire** — adapters obtain public web resources, social-source evidence,
-   local documents, audio and video.
+   local documents, audio and video. Where a source requires a signed-in
+   session to render its content, acquisition drives a dedicated, isolated
+   browser profile rather than any personal browsing session, and never
+   reads, stores or copies its authentication material.
 2. **Preserve** — exact bytes enter the content-addressed object store; SQLite
    records their origin and acquisition event.
 3. **Extract** — readable text, transcript units, comments, frames and visual
    observations are derived without replacing original evidence.
 4. **Index** — persistent passages provide the current searchable layer.
+   Where a source exposes a stable, canonical identifier for an individual
+   item, only items that resolve to one are indexed and permalinked;
+   anything that only resolves to a provisional or positional identifier is
+   preserved as raw evidence but held back from the searchable index until a
+   stable identity can be confirmed.
 5. **Research** — current lexical search returns evidence; grounded synthesis
    and saved research runs are planned layers.
 6. **Publish/use** — verified readable collections and JUFE/name-calculator
@@ -30,6 +38,7 @@ can always be traced back to preserved source material.
 | Human-readable copies | Published collection folders |
 | Machine-local paths/tools/models | `warrigal.local.toml` or environment overrides |
 | Versioned application behavior | Git repository |
+| Authenticated session material (cookies/tokens) | Dedicated, isolated acquisition browser profile; never read or copied by Warrigal |
 
 Published folders are projections. Deleting a published copy must not be
 treated as deleting canonical evidence. Conversely, copying a file into a
