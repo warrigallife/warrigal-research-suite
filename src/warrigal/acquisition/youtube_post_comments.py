@@ -476,7 +476,8 @@ _POST_COMMENTS_BOOTSTRAP_JS = r"""
   window.__wrgReplyButtons = () => Array.from(document.querySelectorAll(
     'ytd-comment-replies-renderer #more-replies button, '
     + 'ytd-comment-replies-renderer #more-replies-button, '
-    + 'ytd-comment-replies-renderer #expander button'
+    + 'ytd-comment-replies-renderer #expander button, '
+    + 'ytd-comment-replies-renderer #collapsed-threads button'
   )).filter(el => el.getClientRects().length > 0
     && !el.closest('[hidden], [aria-hidden="true"]') && !el.disabled);
 
