@@ -75,6 +75,10 @@ def build_local_document_commands(target: str, action: str) -> list[tuple[str, l
     return build_workflow_plan("Local Documents", target, action).panel_commands()
 
 
+def build_archive_search_commands(target: str, action: str) -> list[tuple[str, list[str]]]:
+    return build_workflow_plan("Archive Search", target, action).panel_commands()
+
+
 class SourcePanel(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -116,7 +120,7 @@ class SourcePanel(tk.Tk):
         source_box = ttk.Combobox(
             form,
             textvariable=self.source_type,
-            values=("Instagram", "YouTube", "Website", "Local Documents"),
+            values=("Instagram", "YouTube", "Website", "Local Documents", "Archive Search"),
             state="readonly",
             width=24,
         )
@@ -252,6 +256,8 @@ class SourcePanel(tk.Tk):
             )
         if source == "Local Documents":
             return build_local_document_commands(self.target.get(), self.action.get())
+        if source == "Archive Search":
+            return build_archive_search_commands(self.target.get(), self.action.get())
         return build_website_commands(self.target.get(), self.action.get())
 
     def start(self) -> None:

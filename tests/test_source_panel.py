@@ -5,13 +5,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from warrigal.source_panel import (
+    build_archive_search_commands,
     build_instagram_commands,
     build_local_document_commands,
     build_website_commands,
     instagram_paths,
     safe_name,
 )
-from warrigal.workflows import LOCAL_DOCUMENT_ACTIONS, actions_for
+from warrigal.workflows import ARCHIVE_SEARCH_ACTIONS, LOCAL_DOCUMENT_ACTIONS, actions_for
 
 
 class SourcePanelTests(unittest.TestCase):
@@ -89,6 +90,23 @@ class SourcePanelTests(unittest.TestCase):
                 build_local_document_commands(
                     str(pdf_path), "Ingest a folder of PDFs"
                 )
+
+    def test_archive_search_source_type_is_selectable(self):
+        self.assertEqual(actions_for("Archive Search"), ARCHIVE_SEARCH_ACTIONS)
+
+    def test_build_archive_search_commands_invokes_existing_search_command(self):
+        commands = build_archive_search_commands("warrigal provenance", "Search archive")
+        self.assertEqual(len(commands), 1)
+        label, command = commands[0]
+        self.assertEqual(
+            command,
+            [sys.executable, "-m", "warrigal.cli", "search", "warrigal provenance"],
+        )
+        self.assertIn("archive", label.lower())
+
+    def test_build_archive_search_commands_rejects_empty_query(self):
+        with self.assertRaisesRegex(ValueError, "Enter a search query"):
+            build_archive_search_commands("   ", "Search archive")
 
 
 if __name__ == "__main__":

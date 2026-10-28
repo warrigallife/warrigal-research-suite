@@ -56,6 +56,10 @@ LOCAL_DOCUMENT_ACTIONS = (
     "Ingest a folder of PDFs",
 )
 
+ARCHIVE_SEARCH_ACTIONS = (
+    "Search archive",
+)
+
 
 @dataclass(frozen=True)
 class WorkflowStep:
@@ -91,6 +95,7 @@ def actions_for(source_type: str) -> tuple[str, ...]:
             "YouTube": YOUTUBE_ACTIONS,
             "Website": WEBSITE_ACTIONS,
             "Local Documents": LOCAL_DOCUMENT_ACTIONS,
+            "Archive Search": ARCHIVE_SEARCH_ACTIONS,
         }[source_type]
     except KeyError as exc:
         raise ValueError(f"Unsupported source type: {source_type}") from exc
@@ -227,6 +232,21 @@ def _local_document_plan(target: str, action: str) -> WorkflowPlan:
     raise ValueError("Choose a Local Documents action.")
 
 
+def _archive_search_plan(target: str, action: str) -> WorkflowPlan:
+    query = target.strip()
+    if not query:
+        raise ValueError("Enter a search query.")
+    if action not in ARCHIVE_SEARCH_ACTIONS:
+        raise ValueError("Choose an Archive Search action.")
+    return WorkflowPlan(
+        "Archive Search", query, action,
+        (_step(
+            "Searching the Warrigal archive",
+            sys.executable, "-m", "warrigal.cli", "search", query,
+        ),),
+    )
+
+
 def build_workflow_plan(
     source_type: str,
     target: str,
@@ -254,4 +274,6 @@ def build_workflow_plan(
         return _website_plan(target, action, config)
     if source_type == "Local Documents":
         return _local_document_plan(target, action)
+    if source_type == "Archive Search":
+        return _archive_search_plan(target, action)
     raise ValueError(f"Unsupported source type: {source_type}")

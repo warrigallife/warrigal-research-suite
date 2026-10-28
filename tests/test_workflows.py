@@ -7,6 +7,7 @@ from pathlib import Path
 
 from warrigal.config import WarrigalConfig
 from warrigal.workflows import (
+    ARCHIVE_SEARCH_ACTIONS,
     INSTAGRAM_ACTIONS,
     WEBSITE_ACTIONS,
     YOUTUBE_ACTIONS,
@@ -176,6 +177,35 @@ class LocalDocumentWorkflowTests(unittest.TestCase):
 
             after = sorted(str(entry) for entry in Path(temp).iterdir())
             self.assertEqual(before, after)
+
+
+class ArchiveSearchWorkflowTests(unittest.TestCase):
+    def test_actions_are_exactly_search_archive(self):
+        self.assertEqual(actions_for("Archive Search"), ARCHIVE_SEARCH_ACTIONS)
+
+    def test_search_archive_invokes_existing_search_command(self):
+        plan = build_workflow_plan("Archive Search", "warrigal provenance", "Search archive")
+        self.assertEqual(len(plan.steps), 1)
+        self.assertEqual(
+            plan.steps[0].command,
+            (sys.executable, "-m", "warrigal.cli", "search", "warrigal provenance"),
+        )
+
+    def test_empty_query_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Enter a search query"):
+            build_workflow_plan("Archive Search", "   ", "Search archive")
+
+    def test_unknown_action_is_rejected_before_execution(self):
+        with self.assertRaisesRegex(ValueError, "Choose an Archive Search action"):
+            build_workflow_plan("Archive Search", "warrigal", "Delete everything")
+
+    def test_existing_source_actions_are_unchanged_by_archive_search(self):
+        self.assertEqual(actions_for("Instagram"), INSTAGRAM_ACTIONS)
+        self.assertEqual(actions_for("YouTube"), YOUTUBE_ACTIONS)
+        self.assertEqual(actions_for("Website"), WEBSITE_ACTIONS)
+
+    def test_plan_construction_has_no_filesystem_side_effects(self):
+        build_workflow_plan("Archive Search", "warrigal provenance", "Search archive")
 
 
 if __name__ == "__main__":
