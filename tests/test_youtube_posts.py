@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 from warrigal.acquisition.youtube_posts import (
     YouTubePostCheckpointStore,
     _balanced_json_after,
+    extract_youtube_posts,
     ingest_youtube_posts,
     parse_youtube_posts,
 )
@@ -56,6 +57,44 @@ class YouTubePostTests(unittest.TestCase):
         self.assertEqual(posts[0].author_url, "https://www.youtube.com/@JimmyDaSciencePreacher")
         self.assertEqual(posts[0].published_text, "2 days ago")
         self.assertEqual(posts[0].attachments[0]["videoId"], "VIDEO-1")
+
+    @patch("warrigal.acquisition.youtube_posts.urlopen")
+    def test_extract_posts_strips_trailing_videos_before_requesting_posts_tab(
+        self, urlopen_mock
+    ):
+        html = 'var ytInitialData = {"contents": []};'
+        response = Mock()
+        response.read.return_value = html.encode("utf-8")
+        response.geturl.return_value = "https://www.youtube.com/channel/UC123/posts"
+        urlopen_mock.return_value.__enter__.return_value = response
+
+        extract_youtube_posts(
+            "https://www.youtube.com/channel/UC123/videos",
+            max_posts=10,
+            max_pages=1,
+        )
+
+        requested_url = urlopen_mock.call_args.args[0].full_url
+        self.assertEqual(
+            requested_url, "https://www.youtube.com/channel/UC123/posts"
+        )
+
+    @patch("warrigal.acquisition.youtube_posts.urlopen")
+    def test_extract_posts_leaves_non_videos_urls_unchanged(self, urlopen_mock):
+        html = 'var ytInitialData = {"contents": []};'
+        response = Mock()
+        response.read.return_value = html.encode("utf-8")
+        response.geturl.return_value = "https://www.youtube.com/@Example/posts"
+        urlopen_mock.return_value.__enter__.return_value = response
+
+        extract_youtube_posts(
+            "https://www.youtube.com/@Example",
+            max_posts=10,
+            max_pages=1,
+        )
+
+        requested_url = urlopen_mock.call_args.args[0].full_url
+        self.assertEqual(requested_url, "https://www.youtube.com/@Example/posts")
 
     def test_checkpoint_rejects_another_channel(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1190,16 +1190,23 @@ def run_ingest_youtube_channel(
 ) -> int:
     """Preserve a channel inventory, transcripts, comments, and posts."""
 
-    try:
-        identity = resolve_youtube_channel(channel_url)
-    except ValueError as exc:
-        print("=== WARRIGAL YOUTUBE CHANNEL ERROR ===")
-        print(f"SOURCE: {channel_url}")
-        print(f"ERROR:  {exc}")
-        print("NO WORKFLOW RECORDS WERE CREATED")
-        return 1
+    requested_stages = tuple(stages or ("transcripts", "comments", "posts", "index"))
+    needs_channel_identity = bool(
+        {"inventory", "transcripts", "comments", "index"} & set(requested_stages)
+    )
 
-    channel_url = identity.canonical_url
+    identity = None
+    if needs_channel_identity:
+        try:
+            identity = resolve_youtube_channel(channel_url)
+        except ValueError as exc:
+            print("=== WARRIGAL YOUTUBE CHANNEL ERROR ===")
+            print(f"SOURCE: {channel_url}")
+            print(f"ERROR:  {exc}")
+            print("NO WORKFLOW RECORDS WERE CREATED")
+            return 1
+        channel_url = identity.canonical_url
+
     db = initialize_database()
     repository = WarrigalRepository(db)
     try:
@@ -1228,7 +1235,7 @@ def run_ingest_youtube_channel(
             max_comments=max_comments,
             max_posts=max_posts,
             max_post_pages=max_post_pages,
-            stages=tuple(stages or ("transcripts", "comments", "posts", "index")),
+            stages=requested_stages,
             repository=repository,
             object_store=object_store,
             job_id=job.job_id,
@@ -1238,8 +1245,8 @@ def run_ingest_youtube_channel(
         )
         print("=== WARRIGAL YOUTUBE CHANNEL WORKFLOW ===")
         print(f"CHANNEL:                 {result.channel_url}")
-        print(f"CHANNEL ID:              {identity.channel_id}")
-        print(f"CHANNEL NAME:            {identity.title}")
+        print(f"CHANNEL ID:              {identity.channel_id if identity else 'not resolved (posts-only run)'}")
+        print(f"CHANNEL NAME:            {identity.title if identity else 'not resolved (posts-only run)'}")
         print(f"INVENTORY OBJECT:        {result.inventory_object_id}")
         print(f"VIDEOS DISCOVERED:       {result.discovered_count}")
         print(f"VIDEOS SELECTED:         {result.selected_count}")
@@ -1256,7 +1263,7 @@ def run_ingest_youtube_channel(
         print(f"POST SNAPSHOT REUSED:    {result.community_posts_deduplicated}")
         print(f"CHECKPOINT:              {Path(checkpoint_path).expanduser().resolve()}")
         failed = result.failed_count or (
-            "posts" in tuple(stages or ("transcripts", "comments", "posts", "index"))
+            "posts" in requested_stages
             and result.community_posts_status == "failed"
         )
         return 1 if failed else 0

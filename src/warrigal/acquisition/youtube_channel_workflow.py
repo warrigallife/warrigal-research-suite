@@ -204,29 +204,40 @@ def run_youtube_channel_workflow(
     if max_comments < 0 or max_posts < 1 or max_post_pages < 1:
         raise ValueError("comment bound cannot be negative; post bounds must be at least 1")
 
-    videos = discoverer(
-        channel_url,
-        max_videos=scan_videos or None,
-    )
-    inventory = inventory_preserver(
-        channel_url,
-        videos,
-        repository=repository,
-        object_store=object_store,
-        job_id=job_id,
-        node_id=node_id,
-        batch_id=batch_id,
-        collection_id=collection_id,
-    )
-
     store = YouTubeChannelCheckpointStore(checkpoint_path)
     checkpoint = store.load(channel_url)
-    checkpoint["inventory"] = {
-        "object_id": inventory.object_id,
-        "acquisition_id": inventory.acquisition_id,
-        "sha256": inventory.sha256,
-        "discovered_count": len(videos),
-    }
+
+    needs_video_discovery = bool(
+        {"inventory", "transcripts", "comments", "index"} & set(stages)
+    )
+    if needs_video_discovery:
+        videos = discoverer(
+            channel_url,
+            max_videos=scan_videos or None,
+        )
+        inventory = inventory_preserver(
+            channel_url,
+            videos,
+            repository=repository,
+            object_store=object_store,
+            job_id=job_id,
+            node_id=node_id,
+            batch_id=batch_id,
+            collection_id=collection_id,
+        )
+        checkpoint["inventory"] = {
+            "object_id": inventory.object_id,
+            "acquisition_id": inventory.acquisition_id,
+            "sha256": inventory.sha256,
+            "discovered_count": len(videos),
+        }
+        inventory_object_id = inventory.object_id
+    else:
+        # Posts-only requests must not depend on video-tab discovery, which
+        # some channels (community/shorts-only) do not expose at all.
+        videos = []
+        inventory_object_id = str(checkpoint.get("inventory", {}).get("object_id", ""))
+
     records: dict[str, dict[str, Any]] = checkpoint["videos"]
     video_stages = set(stages) & {"transcripts", "comments"}
     unfinished = [
@@ -376,7 +387,7 @@ def run_youtube_channel_workflow(
     ]
     return YouTubeChannelWorkflowResult(
         channel_url=channel_url,
-        inventory_object_id=inventory.object_id,
+        inventory_object_id=inventory_object_id,
         discovered_count=len(videos),
         selected_count=len(selected),
         completed_count=len(completed),

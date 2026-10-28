@@ -230,6 +230,10 @@ def extract_youtube_posts(
     if max_posts < 1 or max_pages < 1:
         raise ValueError("post extraction bounds must be at least 1")
     posts_url = channel_url.rstrip("/")
+    if posts_url.endswith("/videos"):
+        # A resolved channel identity's canonical URL targets the Videos
+        # tab; Community posts live at the same channel root's /posts tab.
+        posts_url = posts_url[: -len("/videos")].rstrip("/")
     if not posts_url.endswith("/posts"):
         posts_url += "/posts"
     request = Request(posts_url, headers={"User-Agent": "Mozilla/5.0"})
