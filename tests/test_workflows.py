@@ -208,5 +208,73 @@ class ArchiveSearchWorkflowTests(unittest.TestCase):
         build_workflow_plan("Archive Search", "warrigal provenance", "Search archive")
 
 
+class YouTubeCommunityPostCommentsWorkflowTests(unittest.TestCase):
+    def test_action_is_registered_alongside_existing_youtube_actions(self):
+        self.assertIn(
+            "Acquire / resume Community post comments", actions_for("YouTube")
+        )
+        # Existing actions are preserved, not replaced.
+        for action in (
+            "Discover channel inventory",
+            "Acquire / resume transcripts",
+            "Acquire / resume comments",
+            "Acquire / resume Community posts",
+            "Index archived comments",
+            "All research layers",
+            "Single-video available caption",
+            "Single-video media + Whisper transcript",
+        ):
+            self.assertIn(action, actions_for("YouTube"))
+
+    def test_invokes_existing_post_comments_campaign_command(self):
+        with tempfile.TemporaryDirectory() as temp:
+            plan = build_workflow_plan(
+                "YouTube",
+                "https://www.youtube.com/@DutchUncleJohn",
+                "Acquire / resume Community post comments",
+                config=test_config(Path(temp)),
+            )
+
+            self.assertEqual(len(plan.steps), 1)
+            command = plan.steps[0].command
+            self.assertIn("ingest-youtube-post-comments-campaign", command)
+            self.assertIn(
+                "https://www.youtube.com/@DutchUncleJohn", command
+            )
+
+    def test_reuses_the_same_posts_checkpoint_path_as_the_posts_action(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = test_config(Path(temp))
+            url = "https://www.youtube.com/@DutchUncleJohn"
+
+            posts_plan = build_workflow_plan(
+                "YouTube", url, "Acquire / resume Community posts", config=config,
+            )
+            comments_plan = build_workflow_plan(
+                "YouTube", url, "Acquire / resume Community post comments", config=config,
+            )
+
+            posts_command = posts_plan.steps[0].command
+            comments_command = comments_plan.steps[0].command
+            posts_checkpoint = posts_command[
+                posts_command.index("--posts-checkpoint") + 1
+            ]
+            comments_campaign_posts_checkpoint = comments_command[
+                comments_command.index("--posts-checkpoint") + 1
+            ]
+            self.assertEqual(posts_checkpoint, comments_campaign_posts_checkpoint)
+
+    def test_plan_construction_has_no_filesystem_side_effects(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_workflow_plan(
+                "YouTube",
+                "https://www.youtube.com/@DutchUncleJohn",
+                "Acquire / resume Community post comments",
+                config=test_config(root),
+            )
+            self.assertFalse((root / "runtime").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -103,6 +103,52 @@ class ControlledSourcePanelTests(unittest.TestCase):
         self.assertTrue(output.endswith("COLLECTIONS/WEBSITES/radionictech.com"))
         self.assertIn("warrigal.publish_manifest_collection", publish)
 
+    def test_community_post_comments_action_invokes_the_existing_campaign_command(self):
+        url = "https://www.youtube.com/@DutchUncleJohn"
+        command = build_youtube_commands(
+            url, "Acquire / resume Community post comments"
+        )[0][1]
+
+        self.assertIn("ingest-youtube-post-comments-campaign", command)
+        self.assertIn(url, command)
+        self.assertIn("--posts-checkpoint", command)
+        self.assertIn("--comments-checkpoint", command)
+        # The campaign's own comment collector/checkpoint logic is untouched;
+        # this only asserts the panel composes the existing CLI command.
+        self.assertNotIn("ingest-youtube-channel", command)
+
+    def test_community_post_comments_action_reuses_the_existing_posts_checkpoint_path(self):
+        url = "https://www.youtube.com/@DutchUncleJohn"
+
+        posts_command = build_youtube_commands(
+            url, "Acquire / resume Community posts"
+        )[0][1]
+        comments_command = build_youtube_commands(
+            url, "Acquire / resume Community post comments"
+        )[0][1]
+
+        posts_checkpoint = posts_command[
+            posts_command.index("--posts-checkpoint") + 1
+        ]
+        comments_campaign_posts_checkpoint = comments_command[
+            comments_command.index("--posts-checkpoint") + 1
+        ]
+        self.assertEqual(posts_checkpoint, comments_campaign_posts_checkpoint)
+
+    def test_community_post_comments_checkpoint_is_distinct_from_posts_checkpoint(self):
+        url = "https://www.youtube.com/@DutchUncleJohn"
+        comments_command = build_youtube_commands(
+            url, "Acquire / resume Community post comments"
+        )[0][1]
+
+        posts_checkpoint = comments_command[
+            comments_command.index("--posts-checkpoint") + 1
+        ]
+        comments_checkpoint = comments_command[
+            comments_command.index("--comments-checkpoint") + 1
+        ]
+        self.assertNotEqual(posts_checkpoint, comments_checkpoint)
+
 
 if __name__ == "__main__":
     unittest.main()

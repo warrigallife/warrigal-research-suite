@@ -21,6 +21,7 @@ YOUTUBE_ACTIONS = (
     "Acquire / resume transcripts",
     "Acquire / resume comments",
     "Acquire / resume Community posts",
+    "Acquire / resume Community post comments",
     "Index archived comments",
     "All research layers",
     "Single-video available caption",
@@ -32,6 +33,7 @@ YOUTUBE_ACTION_HELP = {
     "Acquire / resume transcripts": "Acquire available YouTube captions for unfinished videos. This does not download video or audio files.",
     "Acquire / resume comments": "Preserve comments for unfinished videos, using the comments-per-video limit.",
     "Acquire / resume Community posts": "Preserve Community posts, using the Community-post limit.",
+    "Acquire / resume Community post comments": "Preserve comment threads and replies beneath already-discovered Community posts, using the signed-in Brave profile. Requires the posts checkpoint from 'Acquire / resume Community posts' to already exist.",
     "Index archived comments": "Make this channel's already preserved comments searchable. No network acquisition is performed.",
     "All research layers": "Run inventory, available captions, comments, Community posts, and channel-scoped comment indexing. Video/audio media is not included.",
     "Single-video available caption": "Acquire the caption supplied by YouTube for one video URL. No media file is downloaded.",
@@ -163,6 +165,20 @@ def _youtube_plan(
             (_step(
                 "Downloading, archiving, and transcribing YouTube media",
                 sys.executable, "-m", "warrigal.cli", "ingest-youtube-media", target,
+            ),),
+        )
+    if action == "Acquire / resume Community post comments":
+        slug = safe_name(target) or "youtube-channel"
+        return WorkflowPlan(
+            "YouTube", target, action,
+            (_step(
+                "Acquiring Community post comment threads",
+                sys.executable, "-m", "warrigal.cli",
+                "ingest-youtube-post-comments-campaign", target,
+                "--posts-checkpoint",
+                str(config.runtime_root / f"{slug}-youtube-posts.checkpoint.json"),
+                "--comments-checkpoint",
+                str(config.runtime_root / f"{slug}-youtube-post-comments.checkpoint.json"),
             ),),
         )
     raise ValueError("Choose a YouTube workflow action.")
