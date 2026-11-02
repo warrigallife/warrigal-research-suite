@@ -591,6 +591,34 @@ def run_acquire(url: str) -> int:
         collection_id=collection.collection_id,
     )
 
+    if not repository.object_has_passages(result.object_id):
+        content = None
+        if response.content_type == "text/html":
+            content = extract_html_content(response.data)
+        elif response.content_type == "application/pdf":
+            content = extract_pdf_content(response.data)
+
+        if content is not None:
+            passages = split_into_passages(
+                content.text,
+                source_url=response.final_url,
+                source_title=content.title,
+                object_id=result.object_id,
+                acquisition_id=result.acquisition_id,
+            )
+
+            for passage in passages:
+                repository.save_passage(
+                    PassageRecord(
+                        object_id=result.object_id,
+                        acquisition_id=result.acquisition_id,
+                        passage_index=passage.index,
+                        text=passage.text,
+                        source_url=passage.source_url,
+                        source_title=passage.source_title,
+                    )
+                )
+
     print()
     print("=== WARRIGAL ACQUISITION ===")
     print(f"URL:            {response.final_url}")

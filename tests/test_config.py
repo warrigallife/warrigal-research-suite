@@ -47,6 +47,167 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.llama, "/tools/llama-cli")
         self.assertEqual(config.qwen_model, Path("/models/qwen.gguf"))
 
+    def test_brave_api_key_env_var_takes_precedence_over_toml_value(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text(
+                '[search]\nbrave_api_key = "toml-test-only-fake-key"\n',
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"WARRIGAL_BRAVE_API_KEY": "env-test-only-fake-key"},
+                clear=True,
+            ):
+                config = load_config(path)
+        self.assertEqual(config.brave_api_key, "env-test-only-fake-key")
+
+    def test_brave_api_key_falls_back_to_toml_value_when_env_var_absent(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text(
+                '[search]\nbrave_api_key = "toml-test-only-fake-key"\n',
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertEqual(config.brave_api_key, "toml-test-only-fake-key")
+
+    def test_brave_api_key_is_none_when_neither_env_var_nor_toml_value_is_set(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text("", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertIsNone(config.brave_api_key)
+
+    def test_tavily_api_key_env_var_takes_precedence_over_toml_value(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text(
+                '[search]\ntavily_api_key = "toml-test-only-fake-key"\n',
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"WARRIGAL_TAVILY_API_KEY": "env-test-only-fake-key"},
+                clear=True,
+            ):
+                config = load_config(path)
+        self.assertEqual(config.tavily_api_key, "env-test-only-fake-key")
+
+    def test_tavily_api_key_falls_back_to_toml_value_when_env_var_absent(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text(
+                '[search]\ntavily_api_key = "toml-test-only-fake-key"\n',
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertEqual(config.tavily_api_key, "toml-test-only-fake-key")
+
+    def test_tavily_api_key_is_none_when_neither_env_var_nor_toml_value_is_set(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text("", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertIsNone(config.tavily_api_key)
+
+    def test_searxng_instance_url_env_var_takes_precedence_over_toml_value(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text(
+                '[search]\nsearxng_instance_url = "https://toml-instance.test"\n',
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"WARRIGAL_SEARXNG_URL": "https://env-instance.test"},
+                clear=True,
+            ):
+                config = load_config(path)
+        self.assertEqual(config.searxng_instance_url, "https://env-instance.test")
+
+    def test_searxng_instance_url_falls_back_to_toml_value_when_env_var_absent(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text(
+                '[search]\nsearxng_instance_url = "https://toml-instance.test"\n',
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertEqual(config.searxng_instance_url, "https://toml-instance.test")
+
+    def test_searxng_instance_url_defaults_to_the_builtin_public_instance_when_unset(self):
+        from tempfile import TemporaryDirectory
+
+        from warrigal.config import DEFAULT_SEARXNG_INSTANCE_URL
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text("", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertEqual(config.searxng_instance_url, DEFAULT_SEARXNG_INSTANCE_URL)
+        # The default must require no account/key - it's a bare URL string.
+        self.assertTrue(config.searxng_instance_url.startswith("https://"))
+
+    def test_online_search_provider_env_var_takes_precedence_over_toml_value(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text('[search]\nprovider = "brave"\n', encoding="utf-8")
+            with patch.dict(
+                os.environ,
+                {"WARRIGAL_ONLINE_SEARCH_PROVIDER": "searxng"},
+                clear=True,
+            ):
+                config = load_config(path)
+        self.assertEqual(config.online_search_provider, "searxng")
+
+    def test_online_search_provider_falls_back_to_toml_value_when_env_var_absent(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text('[search]\nprovider = "brave"\n', encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertEqual(config.online_search_provider, "brave")
+
+    def test_online_search_provider_defaults_to_searxng_when_unset(self):
+        from tempfile import TemporaryDirectory
+
+        from warrigal.config import DEFAULT_ONLINE_SEARCH_PROVIDER
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "warrigal.local.toml"
+            path.write_text("", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(path)
+        self.assertEqual(config.online_search_provider, DEFAULT_ONLINE_SEARCH_PROVIDER)
+        self.assertEqual(config.online_search_provider, "searxng")
+
 
 if __name__ == "__main__":
     unittest.main()
