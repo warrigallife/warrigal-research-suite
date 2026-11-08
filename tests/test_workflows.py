@@ -39,6 +39,23 @@ class WorkflowPlanTests(unittest.TestCase):
         self.assertIn("All research layers", actions_for("YouTube"))
         self.assertIn("Discover links", actions_for("Website"))
 
+    def test_youtube_publish_collection_action_is_registered(self):
+        self.assertIn("Publish collection", actions_for("YouTube"))
+
+    def test_youtube_publish_collection_needs_no_video_or_channel_url(self):
+        with tempfile.TemporaryDirectory() as temp:
+            plan = build_workflow_plan(
+                "YouTube",
+                "",
+                "Publish collection",
+                config=test_config(Path(temp)),
+            )
+            self.assertEqual(len(plan.steps), 1)
+            command = plan.steps[0].command
+            self.assertIn("warrigal.publish_youtube_collection", command)
+            self.assertIn("--output-root", command)
+            self.assertNotIn("--limit", command)
+
     def test_plan_construction_has_no_filesystem_side_effects(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

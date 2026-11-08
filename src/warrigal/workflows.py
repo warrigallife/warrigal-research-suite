@@ -26,6 +26,7 @@ YOUTUBE_ACTIONS = (
     "All research layers",
     "Single-video available caption",
     "Single-video media + Whisper transcript",
+    "Publish collection",
 )
 
 YOUTUBE_ACTION_HELP = {
@@ -38,6 +39,7 @@ YOUTUBE_ACTION_HELP = {
     "All research layers": "Run inventory, available captions, comments, Community posts, and channel-scoped comment indexing. Video/audio media is not included.",
     "Single-video available caption": "Acquire the caption supplied by YouTube for one video URL. No media file is downloaded.",
     "Single-video media + Whisper transcript": "Download and archive one video's media, then transcribe it with the configured local Whisper model.",
+    "Publish collection": "Make every successfully acquired video accessible under COLLECTIONS/YOUTUBE, including any acquired since the collection was last published. No network acquisition is performed; the channel/video field is ignored.",
 }
 WEBSITE_ACTIONS = (
     "Discover links",
@@ -137,6 +139,16 @@ def _youtube_plan(
     max_comments: int = 0,
     max_posts: int = 1000,
 ) -> WorkflowPlan:
+    if action == "Publish collection":
+        output = config.archive_root / "COLLECTIONS" / "YOUTUBE"
+        return WorkflowPlan(
+            "YouTube", target, action,
+            (_step(
+                "Publishing the YouTube collection",
+                sys.executable, "-m", "warrigal.publish_youtube_collection",
+                "--output-root", str(output),
+            ),),
+        )
     target = target.strip()
     if not target.startswith(("https://", "http://")):
         raise ValueError("For a new YouTube source, paste its channel or video URL.")

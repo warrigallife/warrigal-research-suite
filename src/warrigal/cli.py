@@ -46,6 +46,10 @@ from warrigal.prepare_research import (
     DEFAULT_OUTPUT_DIR as RESEARCH_BRIEF_OUTPUT_DIR,
     prepare_research_packet,
 )
+from warrigal.publish_youtube_collection import (
+    DEFAULT_OUTPUT_ROOT as YOUTUBE_COLLECTION_OUTPUT_ROOT,
+    publish_youtube_collection,
+)
 from warrigal.repository import WarrigalRepository
 from warrigal.retrieval.passages import passages_from_rows, split_into_passages
 from warrigal.retrieval.search import search_passages
@@ -1157,55 +1161,105 @@ def run_ingest_archive(path: str) -> int:
 
 
 def run_ingest_youtube(url: str) -> int:
-    """Ingest public YouTube transcript evidence into Warrigal."""
+    """Ingest public YouTube transcript evidence into Warrigal, then make it
+    accessible in the human-readable YouTube collection.
+
+    A successful acquisition used to leave the video indexed but absent
+    from `COLLECTIONS/YOUTUBE/` until someone separately remembered to run
+    `publish_youtube_collection` by hand -- the exact gap this closes, by
+    always republishing (idempotent, reuses existing archived bytes; see
+    WRS_MASTER_STATE.md) right after a successful single-video ingest, and
+    reporting the resulting folder path directly.
+    """
 
     db = initialize_database()
-    repository = WarrigalRepository(db)
-    object_store = ObjectStore()
+    try:
+        repository = WarrigalRepository(db)
+        object_store = ObjectStore()
 
-    node = Node(name="Warrigal YouTube")
-    repository.save_node(node)
+        node = Node(name="Warrigal YouTube")
+        repository.save_node(node)
 
-    batch = Batch(
-        node_id=node.node_id,
-        label="YouTube transcript ingestion",
-    )
-    repository.save_batch(batch)
+        batch = Batch(
+            node_id=node.node_id,
+            label="YouTube transcript ingestion",
+        )
+        repository.save_batch(batch)
 
-    job = Job(
-        name="YouTube transcript ingestion",
-        node_id=node.node_id,
-        batch_id=batch.batch_id,
-    )
-    repository.save_job(job)
+        job = Job(
+            name="YouTube transcript ingestion",
+            node_id=node.node_id,
+            batch_id=batch.batch_id,
+        )
+        repository.save_job(job)
 
-    collection = Collection(
-        name="YouTube Acquisitions",
-        description="YouTube evidence preserved by Warrigal.",
-    )
-    repository.save_collection(collection)
+        collection = Collection(
+            name="YouTube Acquisitions",
+            description="YouTube evidence preserved by Warrigal.",
+        )
+        repository.save_collection(collection)
 
-    result = ingest_video_transcript(
-        url,
-        repository=repository,
-        object_store=object_store,
-        job_id=job.job_id,
-        node_id=node.node_id,
-        batch_id=batch.batch_id,
-        collection_id=collection.collection_id,
-    )
+        try:
+            result = ingest_video_transcript(
+                url,
+                repository=repository,
+                object_store=object_store,
+                job_id=job.job_id,
+                node_id=node.node_id,
+                batch_id=batch.batch_id,
+                collection_id=collection.collection_id,
+            )
+        except ValueError as exc:
+            print()
+            print("=== WARRIGAL YOUTUBE INGESTION FAILED ===")
+            print(f"URL:   {url}")
+            print(f"ERROR: {exc}")
+            print("NO WORKFLOW RECORDS WERE CREATED FOR THIS VIDEO")
+            return 1
 
-    print()
-    print("=== WARRIGAL YOUTUBE INGESTION ===")
-    print(f"VIDEO ID:       {result.video_id}")
-    print(f"OBJECT:         {result.object_id}")
-    print(f"ACQUISITION:    {result.acquisition_id}")
-    print(f"SHA256:         {result.sha256}")
-    print(f"PASSAGES:       {result.passage_count}")
-    print(f"DEDUPLICATED:   {result.deduplicated}")
+        publication = publish_youtube_collection(
+            database=db,
+            object_store=object_store,
+            output_root=YOUTUBE_COLLECTION_OUTPUT_ROOT,
+        )
+        published_entry = next(
+            (
+                entry
+                for entry in publication["videos"]
+                if entry["video_id"] == result.video_id
+            ),
+            None,
+        )
 
-    db.close()
-    return 0
+        print()
+        print("=== WARRIGAL YOUTUBE INGESTION ===")
+        print(f"VIDEO ID:       {result.video_id}")
+        print(f"OBJECT:         {result.object_id}")
+        print(f"ACQUISITION:    {result.acquisition_id}")
+        print(f"SHA256:         {result.sha256}")
+        print(f"PASSAGES:       {result.passage_count}")
+        print(
+            "RESULT:         "
+            + (
+                "ALREADY ARCHIVED (previously acquired)"
+                if result.deduplicated
+                else "NEWLY ACQUIRED"
+            )
+        )
+        if published_entry is not None:
+            print(
+                "COLLECTION:     "
+                f"{YOUTUBE_COLLECTION_OUTPUT_ROOT / published_entry['folder_name']}"
+            )
+        else:
+            print(
+                "COLLECTION:     published, but not found in the refreshed "
+                f"index -- see {YOUTUBE_COLLECTION_OUTPUT_ROOT / 'PUBLICATION_REPORT.json'}"
+            )
+
+        return 0
+    finally:
+        db.close()
 
 
 def run_ingest_youtube_channel(

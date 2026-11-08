@@ -743,3 +743,126 @@ as `41c88c4` before this entry was written; only this §27's own changes
 the real manual-verification output file
 `docs/reports/research-briefs/jennings-20261108T043520Z.md` remain
 uncommitted, pending separate owner approval.
+
+## 30. YouTube save-and-find workflow fixed — acquisition no longer silently skips publication, and the owner's actual missing video is now accessible (8 November 2026)
+
+**Task:** the owner acquired another YouTube video through Warrigal and
+it did not appear where expected; fix the paste-URL → acquire → confirm
+→ find → open chain so this is reliable and understandable, reusing
+existing acquisition/publication functionality only.
+
+**1. The owner's actual video, identified from existing logs, not
+invented:** the most recent `source_type='youtube'` acquisition in the
+database — *"Openveils: New AI Revolutionizing Esoteric Inquiry"*
+(`YUda6CFlJO8`, channel "The Cosmic Summit"), acquired
+2026-11-08T04:19:54 UTC, `status: success`. Cross-checked directly
+against `YOUTUBE/PUBLICATION_REPORT.json`'s 28-video list at the time:
+**absent.** A second, slightly older video (`KV6rKCcOvaM`, "The Linux
+Distro You've Been Waiting For," 02:15 UTC) *was* present — confirming
+this wasn't a blanket publishing failure, only this one video (and, as
+found below, the underlying gap that would affect any single-video
+acquisition going forward).
+
+**2. Root cause, traced through the actual save location, database
+records and publisher — not re-investigated from scratch, but directly
+confirmed to still be live:** this is precisely the discrepancy §20
+already flagged (§20.5) and left unresolved: `src/warrigal/cli.py`'s
+`run_ingest_youtube` (the backend of the Source Panel's "Single-video
+available caption" YouTube action — the action a pasted single URL
+actually uses) calls `ingest_video_transcript` and correctly writes the
+Source/Acquisition/Object/Passage rows, then **returns without ever
+calling `publish_youtube_collection`.** Publishing into
+`COLLECTIONS/YOUTUBE/` has only ever been a separate, standalone
+terminal command nobody is prompted to run — not reachable from the
+Source Panel at all (`YOUTUBE_ACTIONS` had no "Publish" entry, unlike
+Instagram's own `"Publish"` action). A second, independent gap in the
+same function: no `try`/`except` around the ingestion call, so any
+genuine failure (no captions available, invalid/deleted video, etc. —
+`extract_video_metadata`/`acquire_json3_transcript` raise `ValueError`)
+would surface as a raw, unhandled traceback rather than a clear
+success/failure/already-archived message — exactly the "cannot tell
+whether it failed" symptom described.
+
+**3. Fix — two small, narrowly-scoped changes, both reusing only
+already-existing functions, no new downloader/database/agent/archive
+structure:**
+- `src/warrigal/cli.py`, `run_ingest_youtube`: wrapped the ingestion
+  call in `try`/`except ValueError`, printing a clear
+  `=== WARRIGAL YOUTUBE INGESTION FAILED ===` block (mirroring the
+  existing channel-workflow error-reporting pattern) and returning `1`
+  with no workflow records left half-created. On success, it now also
+  calls the existing `publish_youtube_collection` (full republish, not
+  `--limit`-restricted, because `--limit` would have truncated
+  `INDEX.md` to just the one new video — confirmed by reading the
+  publisher's own index-building logic before relying on it) and prints
+  a `RESULT:` line (`NEWLY ACQUIRED` / `ALREADY ARCHIVED (previously
+  acquired)`, from the existing `deduplicated` flag) plus a `COLLECTION:`
+  line giving the exact folder path to open.
+- `src/warrigal/workflows.py`: added `"Publish collection"` to
+  `YOUTUBE_ACTIONS` (mirroring Instagram's existing `"Publish"` action)
+  and a corresponding branch in `_youtube_plan` that composes
+  `python -m warrigal.publish_youtube_collection --output-root <path>`
+  — reachable needing no channel/video URL at all, so a backlog of
+  already-acquired-but-unpublished videos (like this one, and like any
+  future one acquired before this fix's auto-publish takes effect) can
+  be caught up from the Source Panel directly, the same way Instagram's
+  "Publish" already works.
+
+**4. New tests, using a controlled local fixture (mocked
+`extract_video_metadata`/`acquire_json3_transcript` only — the two
+network-touching calls — everything else real), no external downloads:**
+`tests/test_youtube_ingest_cli.py` (3 tests) — a successful ingest is
+published and reports `NEWLY ACQUIRED` plus a real, openable
+`COLLECTION:` folder containing the correct title and transcript text;
+re-ingesting the same fixture reports `ALREADY ARCHIVED` and still
+reports its location; a simulated ingestion failure prints a clear
+`INGESTION FAILED` block with `ERROR:`, returns exit code 1, and
+publishes nothing. `tests/test_workflows.py` (+2 tests) — `"Publish
+collection"` is registered under `YouTube`; building that plan needs no
+video/channel URL and composes the correct existing publisher command.
+
+**5. Verification run:**
+- Focused: `python -m unittest tests.test_youtube_ingest_cli tests.test_workflows -v` → 30/30 pass (3 new + 27 existing, confirming no other YouTube-workflow test regressed).
+- Full suite: `python -m unittest discover -s tests` → 652/652 pass, 0 regressions.
+- **Real repair executed** against the live archive: `python -m warrigal.publish_youtube_collection` → `VIDEOS PUBLISHED THIS RUN: 29` (up from 28), `MISSING OBJECTS: 0`, `SUCCESSFUL BUT NOT PUBLISHED THIS RUN: []`.
+- The owner's actual video now has a real folder —
+  `COLLECTIONS/YOUTUBE/Openveils- New AI Revolutionizing Esoteric Inquiry [YUda6CFlJO8]/`
+  — containing `VIDEO.md` (title, URL, channel, acquisition date,
+  transcript) and `manifest.json`; opened directly and confirmed
+  well-formed.
+- `python -m warrigal.cli search "Openveils esoteric inquiry"` still
+  returns it correctly, `SOURCE:` unaffected.
+- `python -m warrigal.cli archive-health` after the fix: `RESULT: HEALTHY`,
+  `OBJECTS: 14629`, `ACQUISITIONS: 17375`, `PASSAGES: 289258`,
+  `COLLECTIONS: 329` — all **unchanged** from before the publish run,
+  confirming publication only wrote new files, touching no database
+  record. `YOUTUBE/INDEX.md` now lists all 29 entries (not truncated to
+  1), confirming the full-republish choice in §3 was correct.
+- All 28 previously-published videos' own folders were left untouched
+  by this run (the publisher's existing idempotent hardlink-reuse logic,
+  already tested in §23, applies unchanged).
+
+**What was actually fixed and verified:** the specific reason a newly
+acquired video could fail to appear (publication was a separate,
+unprompted, GUI-unreachable manual step) is corrected for the
+single-video acquisition path going forward, and for channel/bulk
+catch-up via the new GUI action; the interface now reports success,
+failure, or already-archived status in plain text, with a direct path
+to the saved material; and the owner's specific missing video is now
+published, searchable, and openable.
+
+**Not done by this entry:** no existing media, transcript, database
+record, or object-store content was moved, deleted, or redownloaded
+(the fix only adds a function call and reports a result; the live
+repair only materialized already-archived bytes into new folders); no
+new downloader, database, agent, or archive structure; no broad archive
+audit beyond this one workflow; no duplicate Case/Bead or tracking
+record — the existing Case
+`workspace-os-automatic-ruflo-swarm-concurrency-model-routing` and Bead
+`wrs-n7u` were updated in place, and this §30 is the corresponding
+WRS-side record. `src/warrigal/cli.py`, `src/warrigal/workflows.py`,
+`tests/test_youtube_ingest_cli.py`, `tests/test_workflows.py`, and this
+§30 section remain uncommitted in Git (no commit was requested this
+pass); the live repair (the one new published folder and the refreshed
+`INDEX.md`/`PUBLICATION_REPORT.json`) is already in effect in the
+archive, independent of Git status.
