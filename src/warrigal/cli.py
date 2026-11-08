@@ -42,6 +42,10 @@ from warrigal.archive_health import run_archive_health
 from warrigal.workflows import actions_for, build_workflow_plan
 from warrigal.models import Batch, Collection, Job, Node, Passage as PassageRecord, Source
 from warrigal.object_store import ObjectStore
+from warrigal.prepare_research import (
+    DEFAULT_OUTPUT_DIR as RESEARCH_BRIEF_OUTPUT_DIR,
+    prepare_research_packet,
+)
 from warrigal.repository import WarrigalRepository
 from warrigal.retrieval.passages import passages_from_rows, split_into_passages
 from warrigal.retrieval.search import search_passages
@@ -1826,6 +1830,24 @@ def run_search(
             f"{acquisition['method'] if acquisition is not None else 'unknown'}"
         )
         print(f"EVIDENCE:       {result.passage.text}")
+
+    # Automatically prepare a local, provenance-carrying evidence packet
+    # for this same query -- reusing the already-computed deterministic
+    # search above, with no extra retrieval logic and no Claude/Ollama
+    # inference -- so a research session reading this command's output
+    # does not also need a separate manual `warrigal.prepare_research`
+    # invocation. Bounded independently of `max_results` (which may be
+    # unbounded here) to keep the packet itself compact.
+    packet_limit = 10 if max_results is None else min(max_results, 10)
+    packet_path = prepare_research_packet(
+        query,
+        database=db,
+        output_dir=RESEARCH_BRIEF_OUTPUT_DIR,
+        min_query_coverage=min_query_coverage,
+        max_results=packet_limit,
+    )
+    print()
+    print(f"EVIDENCE PACKET: {packet_path}")
 
     db.close()
     return 0

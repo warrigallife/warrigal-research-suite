@@ -658,3 +658,88 @@ with/without research-task comparison to obtain the token-delta
 measurement this pass could not produce. No Git commit has been made
 for `src/warrigal/prepare_research.py`, `tests/test_prepare_research.py`,
 or this §26 section — staging/committing was not authorized this pass.
+
+## 27. Connected §26's local research-preparation packet to the existing WRS search entry point — automatic, no separate manual command (8 November 2026)
+
+**Task:** §26 implemented `prepare_research_packet()` but still required
+the owner to run it as a separate, manual `python -m
+warrigal.prepare_research "<query>"` command. This entry connects it to
+an existing WRS entry point so it runs automatically instead.
+
+**1. Entry point found:** `run_search()` in `src/warrigal/cli.py` — the
+handler behind `python -m warrigal.cli search <query>`. Not a new entry
+point: this is the same command `src/warrigal/source_panel.py`'s
+Archive Search action already shells out to via
+`build_archive_search_commands()` / `build_workflow_plan(...)`
+(confirmed by reading `source_panel.py` directly, not assumed).
+
+**2. Change made:** `run_search()` now calls `prepare_research_packet()`
+automatically right after its existing per-result print loop, before
+closing the database connection — reusing the same open connection and
+the same `query`/`min_query_coverage` already supplied to the command.
+The packet's own result count is capped independently at
+`min(max_results, 10)` so an unbounded on-screen search still produces
+a bounded, compact packet. One new trailing line is printed:
+`EVIDENCE PACKET: <path>` — the only change to this command's existing
+output.
+
+**3. Compatibility check, verified not assumed:** `source_panel.py`'s
+`parse_archive_search_results()` parses `run_search()`'s stdout by
+known field prefix; an unrecognized line (the new "EVIDENCE PACKET:"
+line) is already skipped by its existing logic. Confirmed by re-running
+the existing 31-test `tests/test_source_panel.py` suite unchanged — all
+31 still pass.
+
+**4. New tests** (`tests/test_prepare_research.py`, class
+`RunSearchAutomaticPacketTests`): one test runs `run_search()` through
+a mocked database and asserts the packet it produces contains the
+matched source's text and URL, while `urllib.request.urlopen` and
+`http.client.HTTPConnection.request` are both mocked and asserted
+**never called** — structural proof that the automatic preparation adds
+no network or model call. A second test confirms a no-match query still
+produces a packet reporting no matches, rather than erroring or staying
+silent.
+
+**5. Verification run:**
+- Focused: `python -m unittest tests.test_prepare_research -v` → 5/5 pass.
+- Regression: `python -m unittest tests.test_source_panel -v` → 31/31 pass.
+- Full suite: `python -m unittest discover -s tests` → 642/642 pass, 0 regressions.
+- One real, read-only manual check against the live archive:
+  `python -m warrigal.cli search "Jennings" --max-results 3` produced
+  `docs/reports/research-briefs/jennings-20261108T043520Z.md` with
+  correct provenance (source URL, object ID, acquisition ID,
+  acquisition method `youtube_posts_web`) — confirms the wiring works
+  outside the test mocks. No archive data was modified; the search
+  itself is read-only and the only output is this one new report file.
+
+**6. Whether Claude usage was actually avoided:** yes, structurally, for
+the preparation step — same proof method as §26 (mocked network/HTTP
+assertions), now reached automatically through the existing `search`
+command rather than needing a second manual invocation.
+
+**7. What remains unverified:** a measured real-world token delta on an
+actual research session (still not attempted, same gap named in §26);
+and this only reaches whoever already runs `warrigal.cli search` — a
+human at the terminal, the Archive Search GUI action, or a Claude
+session invoking that same command as part of its own research. There
+is still no separate mechanism that pushes a packet into a Claude
+session that has not itself run that command.
+
+**Not done by this entry:** no new agents, frameworks, or dispatch
+architecture; no retrieval logic rebuilt; no change to JUFE, Desk
+Assistant, or named-persona workflows; no change to WRS archive data;
+no repeated audits or broad test reruns beyond the focused and
+regression checks above; no duplicate Case/Bead or WRS tracking record
+created — the existing Case
+`workspace-os-automatic-ruflo-swarm-concurrency-model-routing` and Bead
+`wrs-n7u` (Workspace-OS side) were updated in place, and this §27 is
+the corresponding WRS-side record.
+
+**Resumption point:** owner review, and a decision on whether to commit
+this change. §26 itself (`prepare_research.py`,
+`test_prepare_research.py`, and the §26 section) was already committed
+as `41c88c4` before this entry was written; only this §27's own changes
+(`cli.py`'s `run_search()` edit, the 2 new tests, and this section) and
+the real manual-verification output file
+`docs/reports/research-briefs/jennings-20261108T043520Z.md` remain
+uncommitted, pending separate owner approval.
