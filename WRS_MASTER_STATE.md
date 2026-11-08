@@ -607,3 +607,54 @@ No commit or push (`publish_youtube_collection.py` and its test file remain untr
 **9. Execution pathway, reported plainly:** This entire investigation (steps 1–8 above) was executed directly in this single Claude Code session — model **claude-sonnet-5** ("Sonnet 5") — using direct read-only `sqlite3` queries against `warrigal.db` and three `WebSearch` tool calls. No subagent (Liam, Clio, Dana, etc.), no Ruflo MCP tool, no Ollama handoff, and no Workspace OS Case dispatch was used for the research itself; none was judged necessary for a literature-verification task of this size, consistent with "prefer economical local execution when suitable." No isolated per-task cost/token figure is available to this session; the only cost signal visible is this session's cumulative budget counter, which is not isolated to this task and is not reported here as a task-specific cost.
 
 **Not done by this entry:** no code modified, no new agent or infrastructure created, no package installed, no crawler run, no Case/Bead created, no unrelated investigation started. This closes the one approved investigation.
+
+## 26. Local research-preparation evidence packet implemented — one measurable token-saving improvement for future research tasks (8 November 2026)
+
+**Task (originating in Workspace OS, implemented here):** reduce Claude
+token consumption during WRS research by performing evidence retrieval
+and preparation locally, reusing existing infrastructure only. Full
+decision trail and cross-repo framing recorded in Workspace-OS
+`docs/HANDOFF.md`'s "8 November 2026 — One measurable token-saving
+improvement implemented" entry and Bead `wrs-n7u`; this section is the
+WRS-side implementation record.
+
+**1. New files:**
+- `src/warrigal/prepare_research.py` — `prepare_research_packet(query, *, database, output_dir, min_query_coverage=0.0, max_results=10)` loads passages via the existing `WarrigalRepository.list_passages()`, ranks them with the existing, already-tested, deterministic `search_passages()` function (the same backend `python -m warrigal.cli search` and the Archive Search panel already use), and renders a provenance-carrying Markdown "evidence packet" (source URL, source title, object ID, acquisition ID, acquisition method, score, query coverage, matched terms per result). A `main()`/CLI wrapper (`python -m warrigal.prepare_research "<query>"`) opens the real database and writes to `docs/reports/research-briefs/<slug>-<timestamp>.md`, reusing `atomic_write_text`/`safe_name` from `publish_instagram_collection.py` rather than reimplementing them — the same cross-module reuse pattern `publish_youtube_collection.py` already established.
+- `tests/test_prepare_research.py` — 3 focused tests: provenance fields survive into the written packet; a non-matching query reports an explicit "no passages matched" result; a third test patches `urllib.request.urlopen` and `http.client.HTTPConnection.request` and asserts neither is called, as structural proof that retrieval/ranking/composition make no network or model call.
+
+**2. Verification run:**
+- Focused: `python -m unittest tests.test_prepare_research -v` → 3/3 pass.
+- Full suite: `python -m unittest discover -s tests` → 640/640 pass, 0 regressions (637 prior + 3 new).
+
+**3. What now works:** a research question can be turned into a
+compact, provenance-carrying evidence packet using only local SQLite
+retrieval and the existing deterministic ranking function — no new
+retrieval logic, no Claude or Ollama inference anywhere in that path.
+
+**4. Whether Claude usage was actually avoided:** yes, structurally, for
+the retrieval/ranking/composition step itself — verified by the
+network-call-assertion test, not merely claimed. **Not** verified: an
+actual measured token delta on a real multi-source research task run
+with versus without a prepared packet (out of scope for this pass).
+
+**5. What remains unverified / explicitly out of scope:**
+- No real end-to-end token-savings measurement.
+- No automatic hand-off mechanism — a human or Claude session must be pointed at the written file; building an automatic dispatch/IPC path was judged to be exactly the kind of new infrastructure this task's scope excluded.
+- No `warrigal.cli` subcommand added; the standalone module entry point was judged sufficient.
+- Ollama was not used — no value identified for adding inference to simple deterministic passage retrieval.
+- Not committed, not pushed, not deployed — awaiting owner approval.
+
+**Not done by this entry:** no change to the WRS database beyond
+read-only queries; no new agents, frameworks, or orchestration
+architecture; no repeated audits or orchestration tests; no duplicate
+Case/Bead created — the existing Case
+`workspace-os-automatic-ruflo-swarm-concurrency-model-routing` and Bead
+`wrs-n7u` were updated in place instead (Workspace-OS side), and this
+§26 is the corresponding WRS-side record (no separate WRS tracking
+record created).
+
+**Resumption point:** owner review and, separately, a real
+with/without research-task comparison to obtain the token-delta
+measurement this pass could not produce. No Git commit has been made
+for `src/warrigal/prepare_research.py`, `tests/test_prepare_research.py`,
+or this §26 section — staging/committing was not authorized this pass.
