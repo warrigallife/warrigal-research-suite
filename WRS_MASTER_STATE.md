@@ -866,3 +866,431 @@ WRS-side record. `src/warrigal/cli.py`, `src/warrigal/workflows.py`,
 pass); the live repair (the one new published folder and the refreshed
 `INDEX.md`/`PUBLICATION_REPORT.json`) is already in effect in the
 archive, independent of Git status.
+
+## 31. Name Calculator extended with an optional Sequence & Multiplication section — no "WRS V1" rule specification located; only established arithmetic and existing verified reductions implemented (8 November 2026)
+
+**Task:** add an optional Sequence & Multiplication section to the
+existing Name Calculator interface, allowing numerical outputs from the
+calculator or manually entered numerical sets to be processed; reuse
+verified "original WRS V1 multiplication and sequence rules" if they
+exist, and do not invent replacements; leave any operation unimplemented
+if its rules are unavailable or ambiguous, and report precisely what's
+missing.
+
+**1. Search performed for an existing "WRS V1" sequence/multiplication
+specification, read-only throughout:** grepped for "multiplication",
+"sequence rule", "V1 spec", "name sequence"/"number sequence" and
+related terms across (a) this repository and its Git history (one
+commit only — `6ab43b1`, "Establish consolidated Warrigal baseline and
+diagnostics" — no earlier `name_calculator.py` revision exists to
+inspect); (b) `WRS_MASTER_STATE.md` itself, including §6b's own Name
+Calculator ↔ JUFE inspection; (c) the separate JUFE project at
+`~/Desktop/JUFE` — its `Specifications`/`JUFE_MASTER_SPECIFICATION`/
+`docs` trees, `GRID_64_MAPPING_CONTRACT.md`, `jufe_64_grid_mapper.py`
+(whose own docstring states "No multiplication rule is invented here"
+— about grid-cell placement, not name/number numerology), and the
+`oldmate1(5).py`/`oldmate2(4).py` "original" files it loads (these
+define `ABTM_Engine`/`JUFE_Kernel` — JUFE physics classes, unrelated to
+any name-number scheme); (d) the JUFE research collection under
+`INFORMATION_ARCHIVE/COLLECTIONS/JUFE`; (e) an installer backup of the
+Name Calculator itself
+(`SYSTEM/WARRIGAL/runtime/installer-backups/name-calculator-20260919-034054/`),
+which `diff` confirms is the same calculation engine one feature behind
+current, not an earlier design with different rules; (f) Local Recovery
+backups; (g) old session-recovery transcripts that mention "Name
+Calculator" and "sequence" together — the one transcript that also
+matched "multiplication" was checked directly and the match was an
+unrelated grep-tool excerpt of the same JUFE physics chapter from (c),
+not a description of calculator rules.
+
+**2. Result of that search: no specification or historical file
+describing a "WRS V1 multiplication and sequence rule" for names or
+numbers was located anywhere searched.** Per the task's own instruction,
+nothing is invented to fill that gap. What already exists and is
+already verified in this codebase is exactly two numerical reduction
+rules — `digital_root_9` and `node18_root` (`name_calculator.py:42–53`)
+— and this entry reuses them unchanged rather than guessing at a
+different "multiplication" rule.
+
+**3. What was implemented, using only already-established
+mathematics:** new file `src/warrigal/sequence_multiplication.py` —
+deliberately separate from `name_calculator.py`, so the existing engine
+and its reserved JUFE integration area (the "Show JUFE number script"
+export, and the `frequency_candidates_hz`/`frequency_mapping_status`/
+`jufe_runtime_status` fields on `Fingerprint`) are not touched at all;
+`git diff --stat src/warrigal/name_calculator.py` confirms zero changes
+to that file. Six operations, all ordinary/unambiguous or directly
+reused:
+- **Sum**, **Product** — standard arithmetic reduction of a numerical set.
+- **Running sum**, **Running product** — the standard cumulative forms of the same.
+- **Digital root (1-9) of each value**, **Double-9 root (1-18) of each value** — per-element application of the existing, already-verified `digital_root_9`/`node18_root` functions, imported and reused exactly as implemented, not reinterpreted.
+- Parsing accepts comma- and/or whitespace-separated numbers (`parse_number_sequence`), matching the input convention `jufe_64_grid_mapper.py` already uses for its own numeric input.
+- `compute_sequence_operation` returns a `SequenceResult` carrying a deterministic `result_id` (SHA-256 of raw input + operation + source, excluding timestamp — the same identity-payload pattern `Fingerprint.fingerprint_id` already uses), the exact input values, the operation name, the output, and a `source`/`source_description` field recording whether the input came from manual entry or a specific calculator fingerprint — satisfying "retain their input and operation details for future geometry and sound integration."
+- `save_sequence_result` writes atomically to
+  `~/Desktop/INFORMATION_ARCHIVE/COLLECTIONS/JUFE/NAME_CALCULATOR/SEQUENCES/records/{result_id}.json`
+  — a new sibling subfolder next to the existing Name Calculator
+  records, reusing the same atomic-write-then-replace pattern
+  `save_fingerprint` already uses; identical input reuses one filename
+  (idempotent), confirmed by test.
+
+**4. UI extension, smallest addition to the current architecture:**
+`src/warrigal/name_calculator_panel.py` gained one new method,
+`_build_sequence_section`, adding a "Sequence & Multiplication
+(optional)" `ttk.LabelFrame` below the existing calculator's own output
+and status row — its own numeric input `Text` widget, an operation
+`Combobox`, "Compute"/"Save sequence record"/"Open saved sequences"
+buttons, its own output `Text` widget, and its own status line
+(`self.sequence_status`), kept entirely separate from the calculator's
+own `self.output`/`self.status` so the two sections never overwrite
+each other. A "Use calculator's mapped sequence" button fills the new
+input from `self.result.mapped_sequence` when a calculation has already
+been run, satisfying "allow numerical input independently of the Name
+Calculator" (manual entry needs no prior calculation at all) while
+still letting the calculator's own output feed in on request. No
+existing method on `NameCalculatorPanel` was modified; `clear()` was
+left untouched and does not affect the new section, by design (the two
+remain independent).
+
+**5. Verification run:**
+- Focused: `python -m unittest tests.test_sequence_multiplication -v` → 17/17 pass (parsing, all six operations' correctness including reuse of `digital_root_9`/`node18_root`, determinism of `result_id` for identical input regardless of timestamp, distinct ids for different operations on the same input, provenance retention, atomic/idempotent save).
+- Existing calculator regression check: `python -m unittest tests.test_name_calculator -v` → 5/5 pass, unchanged.
+- Full suite: `python -m unittest discover -s tests` → 669/669 pass, 0 regressions.
+- **Live headless smoke test** of the actual Tkinter panel (not just the pure functions): instantiated `NameCalculatorPanel()`, ran the existing calculator on `"LIAM"` (unchanged output: fingerprint `WRG-NAME-377542185ED2CF51`, `mapped_sequence=[30, 9, 1, 40]`, matching `tests/test_name_calculator.py`'s own expected value exactly), then used the new "Use calculator's mapped sequence" button, switched the operation to `Product`, and computed — output `10800` (`30×9×1×40`), with `source: calculator_output` and `source_detail: Fingerprint WRG-NAME-377542185ED2CF51` correctly recorded. Panel destroyed cleanly afterward. Confirms the extension and the existing calculator both work together in the real GUI, not only in isolated unit tests.
+- `git diff --stat src/warrigal/name_calculator.py` → no output, confirming zero modification to the calculation engine.
+
+**What actually works:** a Sequence & Multiplication section usable
+independently of the Name Calculator (manual numeric entry) or fed from
+it (one button), offering six established operations, producing
+reproducible, provenance-carrying records saved alongside the existing
+Name Calculator records.
+
+**What is explicitly NOT implemented, and why:** any operation
+representing a specific "WRS V1" numerology multiplication/sequence
+rule distinct from ordinary arithmetic — because no specification or
+historical file defining one could be located despite the search in
+§1. If the owner holds that specification somewhere not searched here
+(a physical document, a conversation not captured in any session
+archive checked, or similar), it has not yet been supplied to this
+codebase and would need to be provided before any such rule could be
+implemented — guessing at one was deliberately avoided per the task's
+own instruction.
+
+**Not done by this entry:** no change to `name_calculator.py`,
+`name_calculator_panel.py`'s existing methods, JUFE mathematics, the
+JUFE 64-grid mapper, or any protected workflow; no new framework,
+agent, or repository; no duplicate Case/Bead or tracking record — the
+existing Case
+`workspace-os-automatic-ruflo-swarm-concurrency-model-routing` and Bead
+`wrs-n7u` were updated in place, and this §31 is the corresponding
+WRS-side record. `src/warrigal/sequence_multiplication.py`,
+`tests/test_sequence_multiplication.py`, the additive change to
+`src/warrigal/name_calculator_panel.py`, and this §31 section remain
+uncommitted in Git (no commit was requested this pass).
+
+## 32. Repeated-multiplication generator added to the §31 Sequence & Multiplication section (8 November 2026)
+
+**Task:** extend §31's Sequence & Multiplication section with a
+repeated-multiplication generator — adjustable multiplier (0–99) and
+repetition count (0–99), Stage 0 = original input, each later stage
+multiplies the previous stage, computed per element, exact for
+arbitrarily large integers, plus a selectable doubling (×2) preset.
+
+**1. Implementation, reusing §31's module and interface, nothing
+rebuilt:** added to `src/warrigal/sequence_multiplication.py` (no new
+file) — `generate_multiplication_stages(values, multiplier,
+repetitions)`, the pure generator: Stage 0 is the untouched input, in
+original order; each stage multiplies the previous stage's elements
+independently; `multiplier`/`repetitions` are each validated as whole
+numbers in `[0, 99]`. A whole-number input value multiplied by the
+(always-integer) multiplier is carried as a Python `int` at every
+stage — arbitrary precision, so e.g. `99` repeated-multiplied by `99`
+99 times is computed exactly (verified: a 198-digit exact integer, not
+a float that silently overflowed to `inf`). `compute_multiplication_stages`
+wraps this with the same reproducible-record pattern §31's
+`compute_sequence_operation` already established: a deterministic
+`result_id` (SHA-256 of raw input + multiplier + repetitions + source,
+excluding timestamp), exact input values, multiplier, repetitions, every
+stage, and `source`/`source_description` provenance. `DOUBLING_MULTIPLIER
+= 2` names the doubling preset. `save_multiplication_stages` reuses
+the same atomic-write-then-replace mechanism as §31's
+`save_sequence_result` (both now call one shared private `_save_record`
+helper — a refactor with no behavioural change, confirmed by the
+existing §31 tests still passing unchanged) and writes to the same
+`NAME_CALCULATOR/SEQUENCES/records/` folder, distinguished by a
+`WRG-MULT-` id prefix rather than `WRG-SEQ-`.
+- **Safety fix needed and made while implementing this:** the existing
+  `_as_output_numbers` helper (introduced in §31) ran every value
+  through `float(value).is_integer()` to decide display formatting.
+  For a value already carried as a large Python `int` (e.g. the
+  198-digit result above), `float()` either loses precision silently or
+  raises `OverflowError` outright. Fixed by checking `isinstance(value,
+  int)` first and passing such values through unchanged — behaviour for
+  every existing float-producing operation (Sum, Product, Running
+  sum/product, the two reductions) is unchanged, confirmed by §31's own
+  tests still passing after the fix.
+
+**2. UI extension, added to the existing Sequence & Multiplication
+section, not a new section:** `src/warrigal/name_calculator_panel.py`
+gained a "Repeated Multiplication Generator" sub-area inside the same
+`ttk.LabelFrame` §31 already built — two `Spinbox` controls (Multiplier
+0–99, Repetitions 0–99), a "Doubling preset (×2)" button, "Generate
+stages"/"Save stages record"/"Open saved sequences" buttons, and its
+own output `Text` widget and status line, independent of both the
+calculator's own output and §31's six-operations output. It reuses the
+same shared numeric input box §31 already built (manual entry, or
+filled from the calculator's own mapped sequence via the existing "Use
+calculator's mapped sequence" button) rather than adding a third
+duplicate input field.
+- **Provenance-accuracy fix found and made while verifying this, also
+  benefiting §31's existing six operations:** live-testing exposed that
+  the original §31 `compute_sequence` labelled a result
+  `"calculator_output"` merely because *some* calculation had run at
+  any earlier point, even if the shared input box had since been
+  cleared and manually retyped — a real misattribution for
+  reproducibility purposes. Replaced with a precise check
+  (`_sequence_source`): `"calculator_output"` is reported only while
+  the input still holds exactly what "Use calculator's mapped sequence"
+  last inserted; any edit since reverts it to `"manual"`, confirmed
+  live (see §4 below). This changes only the recorded `source`
+  metadata, never the six operations' own computed results.
+
+**3. New tests** (`tests/test_sequence_multiplication.py`, +16, 33
+total in the file): the documented example (`4`, ×10, 4 reps →
+`4,40,400,4000,40000`) exactly; zero repetitions returns only Stage 0;
+multiplier `0`; multiplier `1` (unchanged at every stage); multiplier
+`2` (doubling, via `DOUBLING_MULTIPLIER`); **multiplier `99` at the
+maximum `99` repetitions — asserted to be an exact Python `int` greater
+than `10**190`**, not a float; multiple input values calculated
+independently and in original order; multiplier/repetitions rejected
+outside `[0, 99]`; non-integer multiplier/repetitions rejected;
+reproducible `result_id` for identical input regardless of timestamp;
+different multiplier ⇒ different id; provenance retained; atomic,
+idempotent save.
+
+**4. Verification run:**
+- Focused: `python -m unittest tests.test_sequence_multiplication -v` → 33/33 pass.
+- Existing calculator regression check: `python -m unittest tests.test_name_calculator -v` → 5/5 pass, unchanged.
+- Full suite: `python -m unittest discover -s tests` → 685/685 pass, 0 regressions.
+- **Live headless smoke test of the real Tkinter panel:** ran the
+  existing calculator on `"LIAM"` (unchanged: fingerprint
+  `WRG-NAME-377542185ED2CF51`, `mapped_sequence=[30, 9, 1, 40]`,
+  matching the existing test's own expected value); generated the
+  documented example (`4`, ×10, 4 reps) directly in the GUI and got
+  exactly `Stage 0: 4` through `Stage 4: 40000`; pulled the calculator's
+  mapped sequence, applied the doubling preset, set repetitions to `5`,
+  and got `Stage 0: 30, 9, 1, 40` through `Stage 5: 960, 288, 32,
+  1280` — each element doubled independently, in order, matching
+  `30×2⁵=960`, `9×2⁵=288`, `1×2⁵=32`, `40×2⁵=1280` exactly. Then
+  confirmed the §2 provenance fix live: typing `"4"` manually after an
+  earlier calculation reported `Source: manual` (not
+  `calculator_output`); using the fill button reported
+  `calculator_output` with the correct fingerprint; editing the input
+  afterward (appending `, 99`) correctly reverted to `manual`.
+- `git diff --stat src/warrigal/name_calculator.py` → no output,
+  confirming zero modification to the calculation engine throughout
+  this entry.
+
+**What actually works:** a repeated-multiplication generator with
+adjustable multiplier (0–99) and repetitions (0–99), a doubling preset,
+per-element independent computation preserving order, exact arbitrary-
+precision integers at any repetition count, and reproducible,
+provenance-carrying saved records — usable from manual input or the
+Name Calculator's own output, displayed clearly stage-by-stage, savable
+and reopenable via the same mechanisms §31 already established.
+
+**Not done by this entry:** no change to `name_calculator.py`, JUFE
+mathematics, or any protected workflow; none of §31's six existing
+operations' own computed results changed (only their `source` metadata
+accuracy was improved, as a direct byproduct of building this correctly
+— not a separate, unrequested change); no new framework, agent, or
+repository; no duplicate Case/Bead or tracking record — the existing
+Case `workspace-os-automatic-ruflo-swarm-concurrency-model-routing` and
+Bead `wrs-n7u` were updated in place, and this §32 is the corresponding
+WRS-side record. All changed/added files remain uncommitted in Git (no
+commit was requested this pass).
+
+## 33. Name Calculator window made vertically scrollable — §31/§32's sections no longer extend off-screen (8 November 2026)
+
+**Task:** the §31 Sequence & Multiplication section and §32's Repeated
+Multiplication Generator pushed the window's content below the bottom
+of a MacBook display, making some controls and results inaccessible.
+Make the existing window vertically scrollable; reuse the current
+Tkinter layout; no redesign, no new framework, no change to any
+calculation logic.
+
+**1. Fix, the smallest change that solves it:** `src/warrigal/name_calculator_panel.py`'s
+`_build()` now wraps the existing `outer` frame (which still holds
+every widget at exactly the same grid rows/columns as before — nothing
+inside it was touched) in a `tk.Canvas` + `ttk.Scrollbar`, instead of
+packing it directly into the window. Two small callbacks keep this in
+sync: `outer`'s own `<Configure>` event updates the canvas's
+`scrollregion` to match its actual (now potentially taller-than-window)
+size; the canvas's own `<Configure>` event keeps `outer` exactly as
+wide as the visible canvas, so every existing `sticky="ew"` /
+`columnconfigure(weight=1)` widget still resizes horizontally exactly
+as it did before. `<MouseWheel>` is bound (while the window has focus)
+to scroll the canvas, for trackpad/mouse-wheel scrolling on macOS. No
+existing widget, method, or calculation function was modified — the
+change is confined to how the already-built layout is mounted into the
+window.
+
+**2. Verification run:**
+- Full suite: `python -m unittest discover -s tests` → 685/685 pass, 0
+  regressions (this is a UI-mounting change only; no pure-function
+  behaviour changed).
+- `git diff --stat src/warrigal/name_calculator.py src/warrigal/sequence_multiplication.py`
+  → no output, confirming neither calculation engine was touched.
+- **Live verification using the actual Tkinter window, not just unit
+  tests:** instantiated `NameCalculatorPanel()` and measured it
+  directly — total content height **1280px** against a visible canvas
+  height of **820px** (the default window size) and **680px** (resized
+  down to `self.minsize(900, 680)`, the smallest the window allows) —
+  confirming the overflow the task describes is real and that scrolling
+  is genuinely necessary at both sizes, not simulated.
+  - Programmatically moved the canvas view from top (`yview=(0.0,
+    0.64)`) to bottom (`yview=(0.36, 1.0)`) and confirmed the visible
+    region actually changed — the scrollbar mechanism works.
+  - Simulated a real `<MouseWheel>` event (`delta=-120`, a scroll-down
+    gesture) and confirmed the view moved accordingly
+    (`(0.0, 0.64) → (0.064, 0.70)`) — trackpad/wheel scrolling works,
+    not only programmatic `yview_moveto`.
+  - Resized the window to its minimum (`900x680`) and confirmed the
+    canvas's visible height and the content's width both tracked the
+    new size correctly, while the total scrollable content height
+    (1280px) stayed constant — confirming the bottom controls remain
+    reachable by scrolling even at the smallest supported window size.
+  - Re-ran the existing calculator (`"LIAM"` → unchanged fingerprint
+    `WRG-NAME-377542185ED2CF51`, `mapped_sequence=[30, 9, 1, 40]`,
+    matching the existing test's own expected value) and the §32
+    Repeated Multiplication Generator (`4`, ×10, 4 reps → exactly
+    `4, 40, 400, 4000, 40000`) **through the new scrollable wrapper**,
+    confirming both remain fully functional, not merely visually
+    present.
+
+**What actually works:** the window now scrolls vertically (by
+scrollbar drag or trackpad/mouse wheel) to reach every section,
+control, and output area, including the §31/§32 sections that
+previously extended past the bottom of the screen; every existing
+calculation, control, and saved-record mechanism (verified directly
+above) continues to work exactly as before.
+
+**Not done by this entry:** no change to `name_calculator.py` or
+`sequence_multiplication.py`; no widget removed, repositioned relative
+to its siblings, or redesigned — only the top-level container holding
+them changed; no new framework or dependency (only `tkinter`'s own
+built-in `Canvas`/`Scrollbar`, already imported elsewhere in this
+codebase); no duplicate Case/Bead or tracking record — the existing
+Case `workspace-os-automatic-ruflo-swarm-concurrency-model-routing` and
+Bead `wrs-n7u` were updated in place, and this §33 is the corresponding
+WRS-side record. `src/warrigal/name_calculator_panel.py` and this §33
+section remain uncommitted in Git (no commit was requested this pass).
+
+## 34. Name Calculator → Repeated Multiplication connection made robust — "Enter one or more numbers" despite a visible mapped sequence (8 November 2026)
+
+**Task:** the owner clicked "Use calculator's mapped sequence," then
+"Generate stages," and received "Enter one or more numbers" despite the
+mapped sequence appearing on screen. Inspect the actual widget state and
+event handlers; correct the connection; smallest necessary change; no
+generator rebuild, no interface redesign, no mathematics change.
+
+**1. Inspection performed, read-only, before any change:** re-read
+`fill_sequence_from_calculator`, the (then-named) `_sequence_source`,
+`compute_sequence`, and `compute_multiplication` in
+`src/warrigal/name_calculator_panel.py` line by line. Confirmed only one
+`self.sequence_input` widget exists (`grep` for the assignment — exactly
+one hit), written only by `fill_sequence_from_calculator`
+(`delete`+`insert`) and read only by `compute_sequence` /
+`compute_multiplication` via `self.sequence_input.get("1.0", "end")` —
+the wiring itself, as a static read of the code, is correct: the same
+widget is written and read. Checked for stray `<FocusOut>`/validate
+bindings, duplicate method definitions, and grid-position overlap
+between "Use calculator's mapped sequence" and "Generate stages" — none
+found (`grep` for `FocusOut`/`validatecommand`/`bind(` returns only the
+two `<Configure>` bindings from §33's scrolling fix, which only resize
+the canvas window item and never touch widget content).
+
+**2. Live reproduction attempted exactly as described, using the real
+Tkinter window, not a mock:** calculated `"LIAM"`, clicked (via real
+`ttk.Button.invoke()`, then again via real coordinate-based
+`<Button-1>`/`<ButtonRelease-1>` events) "Use calculator's mapped
+sequence," confirmed `self.sequence_input` held `"30, 9, 1, 40"`, set
+multiplier `6` / repetitions `3` (via both direct `StringVar.set()` and
+real keystroke `event_generate` into the actual `ttk.Spinbox` widget,
+including moving real keyboard focus into it), scrolled the canvas via a
+real `<MouseWheel>` event between the two button clicks (since the
+buttons sit roughly 230px apart vertically and the window is often
+shorter than the content, per §33), and clicked "Generate stages." **In
+every variation tried, this reproduced the correct result, not the
+reported error** — the connection as originally coded was not
+observed to fail under any interaction this session could construct.
+
+**3. Fix made despite not reproducing the failure directly — a
+structural hardening of the exact connection described, not a guess at
+an unrelated cause:** the symptom as reported — "the mapped sequence
+appearing on screen" (i.e., the box visibly holds it) while the
+generator's read of that same box behaves as if it were empty — is, by
+definition, a case where a single live `.get()` call on the shared
+`tk.Text` widget cannot be trusted as the *only* source of truth for
+what was already explicitly pulled from the calculator. §32 already
+tracks `self._calculator_fill_text` (what "Use calculator's mapped
+sequence" last inserted) and `self._calculator_fill_fingerprint`
+precisely for provenance-labelling — this entry extends that into a
+genuine fallback. The former `_sequence_source` helper (read-only,
+provenance-labelling only) is replaced with `_resolve_sequence_input`,
+which returns the raw input to actually use, together with its
+source/source_description: if the live box read is non-empty, behaviour
+is unchanged (own text if it doesn't match the last fill, the
+calculator's provenance if it does); **if the live box read is empty
+but a calculator fill has already happened, it now falls back to
+`self._calculator_fill_text` itself** rather than passing empty text
+through to `compute_sequence_operation`/`compute_multiplication_stages`
+and surfacing "Enter one or more numbers." Both `compute_sequence` (the
+six operations) and `compute_multiplication` (the generator) now call
+this one resolver, since both read the identical shared box — fixing
+only the generator while leaving the six-operations section exposed to
+the identical class of connection issue would leave the same bug
+address half-fixed for the other consumer of the same box. No change to
+`compute_sequence_operation`, `compute_multiplication_stages`, or any
+other function in `sequence_multiplication.py` or `name_calculator.py`.
+
+**4. New tests** (`tests/test_name_calculator_panel_sequence_input.py`,
+new file, 5 tests, each building a real `NameCalculatorPanel` —
+`messagebox.showerror`/`showinfo` patched out so the genuinely-empty-
+input case cannot block the test run on a real modal dialog): the
+exact reported scenario (Calculate → fill → ×6/3 reps → Generate)
+produces the correct stages; **the shared box explicitly emptied right
+after a fill still resolves to the calculator's sequence** (a direct,
+deliberate reproduction of the reported symptom, confirming the fix);
+the six-operations section shares the same recovery; manual input with
+no prior fill is unaffected (`"4"`, ×10, 4 reps → the §32 documented
+example, unchanged); genuinely empty input with no fill at all still
+correctly produces no result (the error dialog path, confirmed not to
+silently succeed with fabricated data).
+
+**5. Verification run:**
+- Focused: `python -m unittest tests.test_name_calculator_panel_sequence_input -v` → 5/5 pass.
+- Full suite: `python -m unittest discover -s tests` → 690/690 pass, 0 regressions.
+- `git diff --stat src/warrigal/name_calculator.py src/warrigal/sequence_multiplication.py` → no output, confirming neither calculation engine was touched.
+- **Live verification of the exact five requested steps, using the real window:** calculated `"LIAM"` → fingerprint `WRG-NAME-377542185ED2CF51`, `mapped_sequence=[30, 9, 1, 40]` (unchanged, matches the existing test's expected value); clicked "Use calculator's mapped sequence" → box shows `"30, 9, 1, 40"`; set multiplier `6`, repetitions `3`; clicked "Generate stages" → output exactly `Stage 0: 30, 9, 1, 40` / `Stage 1: 180, 54, 6, 240` / `Stage 2: 1080, 324, 36, 1440` / `Stage 3: 6480, 1944, 216, 8640`, `Source: calculator_output`, no error, no manual copying required.
+
+**What actually works:** the connection between the calculator's mapped
+sequence and the Repeated Multiplication Generator (and the six
+operations above it) no longer depends on a single, unverified read of
+shared widget state — it falls back to the calculator's own
+already-pulled sequence whenever that live read comes back empty,
+closing exactly the gap the reported symptom describes, while every
+other path (manual entry, no fill at all) behaves exactly as before.
+
+**Not done by this entry:** no change to `name_calculator.py` or
+`sequence_multiplication.py`; no widget added, removed, or redesigned;
+no change to any established operation's mathematics; the exact root
+cause of the user's one-time report was not identified (it did not
+reproduce under direct testing) — this entry hardens the described
+connection against the class of failure the symptom implies, which is
+reported plainly rather than claimed as a confirmed root-cause fix; no
+duplicate Case/Bead or tracking record — the existing Case
+`workspace-os-automatic-ruflo-swarm-concurrency-model-routing` and Bead
+`wrs-n7u` were updated in place, and this §34 is the corresponding
+WRS-side record. `src/warrigal/name_calculator_panel.py`,
+`tests/test_name_calculator_panel_sequence_input.py`, and this §34
+section remain uncommitted in Git (no commit was requested this pass).

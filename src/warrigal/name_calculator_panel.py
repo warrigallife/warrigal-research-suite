@@ -15,6 +15,19 @@ from warrigal.name_calculator import (
     save_fingerprint,
 )
 from warrigal.scripture_import import load_text_units, parse_labelled_text, preserve_source_file, save_text_batch
+from warrigal.sequence_multiplication import (
+    DOUBLING_MULTIPLIER,
+    MAX_MULTIPLIER,
+    MAX_REPETITIONS,
+    MIN_MULTIPLIER,
+    MIN_REPETITIONS,
+    OPERATIONS,
+    compute_multiplication_stages,
+    compute_sequence_operation,
+    default_sequence_records_root,
+    save_multiplication_stages,
+    save_sequence_result,
+)
 
 
 class NameCalculatorPanel(tk.Tk):
@@ -31,11 +44,58 @@ class NameCalculatorPanel(tk.Tk):
         self.status = tk.StringVar(value="Ready — enter text, then calculate.")
         self.attachment_path = ""
         self.attachment_sha256 = ""
+        self.sequence_operation = tk.StringVar(value=OPERATIONS[0])
+        self.sequence_status = tk.StringVar(value="Ready — independent of the calculator above.")
+        self.sequence_result = None
+        self.multiplication_multiplier = tk.StringVar(value="10")
+        self.multiplication_repetitions = tk.StringVar(value="4")
+        self.multiplication_status = tk.StringVar(value="Ready — independent of the calculator above.")
+        self.multiplication_result = None
+        self._calculator_fill_text: str | None = None
+        self._calculator_fill_fingerprint: str | None = None
         self._build()
 
     def _build(self) -> None:
-        outer = ttk.Frame(self, padding=18)
-        outer.pack(fill="both", expand=True)
+        # The window's content (calculator + the Sequence & Multiplication /
+        # Repeated Multiplication sections) can be taller than a MacBook
+        # display. Wrap the existing layout in a scrollable canvas instead
+        # of redesigning it: `outer` still holds every widget below exactly
+        # as before, at exactly the same grid positions -- only its
+        # immediate parent changed, from the window itself to a frame
+        # inside a scrolling `Canvas`.
+        container = ttk.Frame(self)
+        container.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        outer = ttk.Frame(canvas, padding=18)
+        outer_window = canvas.create_window((0, 0), window=outer, anchor="nw")
+
+        def _sync_scrollregion(_event=None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _sync_outer_width(event) -> None:
+            # Keep the content exactly as wide as the visible canvas, so
+            # existing sticky="ew"/columnconfigure(weight=1) widgets inside
+            # `outer` resize horizontally exactly as they did before.
+            canvas.itemconfigure(outer_window, width=event.width)
+
+        outer.bind("<Configure>", _sync_scrollregion)
+        canvas.bind("<Configure>", _sync_outer_width)
+
+        def _on_mousewheel(event) -> None:
+            if event.delta > 0:
+                canvas.yview_scroll(-1, "units")
+            elif event.delta < 0:
+                canvas.yview_scroll(1, "units")
+
+        # macOS trackpad/mouse wheel scrolling, while this window has focus.
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(6, weight=1)
 
@@ -90,6 +150,254 @@ class NameCalculatorPanel(tk.Tk):
         self.output = tk.Text(outer, height=22, wrap="none")
         self.output.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=(4, 8))
         ttk.Label(outer, textvariable=self.status).grid(row=7, column=0, columnspan=2, sticky="w")
+
+        self._build_sequence_section(outer)
+
+    def _build_sequence_section(self, outer: ttk.Frame) -> None:
+        """Optional Sequence & Multiplication section.
+
+        Independent of the Name Calculator above: it has its own input,
+        operation choice, output and status, and does not read or change
+        anything the calculator has already produced unless the owner
+        explicitly asks for it via "Use calculator's mapped sequence".
+        """
+        section = ttk.LabelFrame(outer, text="Sequence & Multiplication (optional)", padding=12)
+        section.grid(row=8, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
+        section.columnconfigure(0, weight=1)
+
+        ttk.Label(
+            section,
+            text=(
+                "Process a numerical set independently of the calculator above -- "
+                "type numbers directly, or pull the calculator's own mapped sequence."
+            ),
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+
+        ttk.Label(section, text="Numbers (comma or space separated)").grid(
+            row=1, column=0, columnspan=3, sticky="w"
+        )
+        self.sequence_input = tk.Text(section, height=3, wrap="word")
+        self.sequence_input.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(2, 8))
+
+        controls = ttk.Frame(section)
+        controls.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            controls,
+            text="Use calculator's mapped sequence",
+            command=self.fill_sequence_from_calculator,
+        ).pack(side="left")
+        ttk.Label(controls, text="Operation").pack(side="left", padx=(16, 6))
+        ttk.Combobox(
+            controls, textvariable=self.sequence_operation, values=list(OPERATIONS), state="readonly"
+        ).pack(side="left")
+        ttk.Button(controls, text="Compute", command=self.compute_sequence).pack(side="left", padx=(16, 0))
+        ttk.Button(
+            controls, text="Save sequence record", command=self.save_sequence_record
+        ).pack(side="left", padx=8)
+        ttk.Button(
+            controls, text="Open saved sequences", command=self.open_sequence_records
+        ).pack(side="left")
+
+        self.sequence_output = tk.Text(section, height=6, wrap="none")
+        self.sequence_output.grid(row=4, column=0, columnspan=3, sticky="nsew")
+        ttk.Label(section, textvariable=self.sequence_status).grid(
+            row=5, column=0, columnspan=3, sticky="w", pady=(6, 0)
+        )
+
+        ttk.Separator(section, orient="horizontal").grid(
+            row=6, column=0, columnspan=3, sticky="ew", pady=(12, 8)
+        )
+        ttk.Label(
+            section,
+            text=(
+                "Repeated Multiplication Generator -- uses the same numbers "
+                "entered or pulled above. Stage 0 is the original input; "
+                "each later stage multiplies the previous stage by the "
+                "chosen multiplier."
+            ),
+        ).grid(row=7, column=0, columnspan=3, sticky="w", pady=(0, 6))
+
+        multiplication_controls = ttk.Frame(section)
+        multiplication_controls.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        ttk.Label(multiplication_controls, text="Multiplier (0-99)").pack(side="left")
+        ttk.Spinbox(
+            multiplication_controls,
+            from_=MIN_MULTIPLIER,
+            to=MAX_MULTIPLIER,
+            width=5,
+            textvariable=self.multiplication_multiplier,
+        ).pack(side="left", padx=(6, 16))
+        ttk.Label(multiplication_controls, text="Repetitions (0-99)").pack(side="left")
+        ttk.Spinbox(
+            multiplication_controls,
+            from_=MIN_REPETITIONS,
+            to=MAX_REPETITIONS,
+            width=5,
+            textvariable=self.multiplication_repetitions,
+        ).pack(side="left", padx=(6, 16))
+        ttk.Button(
+            multiplication_controls,
+            text="Doubling preset (×2)",
+            command=self.apply_doubling_preset,
+        ).pack(side="left")
+
+        multiplication_buttons = ttk.Frame(section)
+        multiplication_buttons.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            multiplication_buttons, text="Generate stages", command=self.compute_multiplication
+        ).pack(side="left")
+        ttk.Button(
+            multiplication_buttons,
+            text="Save stages record",
+            command=self.save_multiplication_record,
+        ).pack(side="left", padx=8)
+        ttk.Button(
+            multiplication_buttons,
+            text="Open saved sequences",
+            command=self.open_sequence_records,
+        ).pack(side="left")
+
+        self.multiplication_output = tk.Text(section, height=10, wrap="none")
+        self.multiplication_output.grid(row=10, column=0, columnspan=3, sticky="nsew")
+        ttk.Label(section, textvariable=self.multiplication_status).grid(
+            row=11, column=0, columnspan=3, sticky="w", pady=(6, 0)
+        )
+
+    def fill_sequence_from_calculator(self) -> None:
+        if self.result is None:
+            messagebox.showinfo(
+                "No calculator output yet",
+                "Calculate a result above first, or type numbers directly "
+                "into the Sequence & Multiplication section.",
+            )
+            return
+        filled_text = ", ".join(map(str, self.result.mapped_sequence))
+        self.sequence_input.delete("1.0", "end")
+        self.sequence_input.insert("1.0", filled_text)
+        self._calculator_fill_text = filled_text
+        self._calculator_fill_fingerprint = self.result.fingerprint_id
+        self.sequence_status.set(
+            f"Filled from calculator fingerprint {self.result.fingerprint_id}."
+        )
+
+    def _resolve_sequence_input(self) -> tuple[str, str, str]:
+        """Return (raw_input, source, source_description) for whichever
+        numbers should actually be processed.
+
+        Reads the shared numeric input box, exactly as before. If that box
+        is blank but "Use calculator's mapped sequence" has already filled
+        it once this session, falls back to that same sequence instead of
+        failing -- so a momentarily empty read of the box (the box was
+        cleared, or its content was not yet visible to this read) can
+        never silently disconnect the generator (or the six operations
+        above it, which share this same box) from the calculator's output
+        the owner explicitly asked to use. "calculator_output" is reported
+        only when the resolved input actually is that filled sequence, not
+        merely because a calculation happened to run at some point.
+        """
+        raw_input = self.sequence_input.get("1.0", "end").strip()
+        if raw_input:
+            if self._calculator_fill_text is not None and raw_input == self._calculator_fill_text:
+                return raw_input, "calculator_output", f"Fingerprint {self._calculator_fill_fingerprint}"
+            return raw_input, "manual", ""
+        if self._calculator_fill_text:
+            return (
+                self._calculator_fill_text,
+                "calculator_output",
+                f"Fingerprint {self._calculator_fill_fingerprint}",
+            )
+        return raw_input, "manual", ""
+
+    def compute_sequence(self) -> None:
+        raw_input, source, source_description = self._resolve_sequence_input()
+        try:
+            result = compute_sequence_operation(
+                raw_input,
+                self.sequence_operation.get(),
+                source=source,
+                source_description=source_description,
+            )
+        except Exception as exc:
+            messagebox.showerror("Cannot compute sequence", str(exc))
+            return
+
+        self.sequence_result = result
+        lines = [
+            f"Result ID: {result.result_id}",
+            f"Operation: {result.operation}",
+            f"Input values: {', '.join(map(str, result.values))}",
+            f"Output: {', '.join(map(str, result.output))}",
+            f"Source: {result.source}",
+        ]
+        if result.source_description:
+            lines.append(f"Source detail: {result.source_description}")
+        self.sequence_output.delete("1.0", "end")
+        self.sequence_output.insert("1.0", "\n".join(lines))
+        self.sequence_status.set(
+            "Computed. Nothing is saved until you use 'Save sequence record'."
+        )
+
+    def save_sequence_record(self) -> None:
+        if self.sequence_result is None:
+            self.compute_sequence()
+        if self.sequence_result is None:
+            return
+        path = save_sequence_result(self.sequence_result)
+        self.sequence_status.set(f"Saved without duplicate filenames: {path}")
+        messagebox.showinfo("Sequence record saved", f"Saved:\n{path}")
+
+    def open_sequence_records(self) -> None:
+        import subprocess
+        root = default_sequence_records_root()
+        root.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["open", str(root)], check=False)
+
+    def apply_doubling_preset(self) -> None:
+        self.multiplication_multiplier.set(str(DOUBLING_MULTIPLIER))
+        self.multiplication_status.set(
+            f"Doubling preset applied: multiplier set to {DOUBLING_MULTIPLIER}."
+        )
+
+    def compute_multiplication(self) -> None:
+        raw_input, source, source_description = self._resolve_sequence_input()
+        try:
+            result = compute_multiplication_stages(
+                raw_input,
+                self.multiplication_multiplier.get(),
+                self.multiplication_repetitions.get(),
+                source=source,
+                source_description=source_description,
+            )
+        except Exception as exc:
+            messagebox.showerror("Cannot generate stages", str(exc))
+            return
+
+        self.multiplication_result = result
+        lines = [
+            f"Result ID: {result.result_id}",
+            f"Multiplier: {result.multiplier}",
+            f"Repetitions: {result.repetitions}",
+            f"Source: {result.source}",
+        ]
+        if result.source_description:
+            lines.append(f"Source detail: {result.source_description}")
+        lines.append("")
+        for stage_index, stage_values in enumerate(result.stages):
+            lines.append(f"Stage {stage_index}: {', '.join(map(str, stage_values))}")
+        self.multiplication_output.delete("1.0", "end")
+        self.multiplication_output.insert("1.0", "\n".join(lines))
+        self.multiplication_status.set(
+            "Generated. Nothing is saved until you use 'Save stages record'."
+        )
+
+    def save_multiplication_record(self) -> None:
+        if self.multiplication_result is None:
+            self.compute_multiplication()
+        if self.multiplication_result is None:
+            return
+        path = save_multiplication_stages(self.multiplication_result)
+        self.multiplication_status.set(f"Saved without duplicate filenames: {path}")
+        messagebox.showinfo("Stages record saved", f"Saved:\n{path}")
 
     def _calculate(self) -> Fingerprint:
         calculated = calculate_fingerprint(
