@@ -1294,3 +1294,38 @@ duplicate Case/Bead or tracking record — the existing Case
 WRS-side record. `src/warrigal/name_calculator_panel.py`,
 `tests/test_name_calculator_panel_sequence_input.py`, and this §34
 section remain uncommitted in Git (no commit was requested this pass).
+
+## 35. Two Desktop/Downloads housekeeping files relocated into this repo's existing docs/reports/ (10 November 2026)
+
+**Task:** following a read-only Desktop/Downloads inventory and a
+three-agent reconciliation of the candidates it found, the
+coordinating session executed the two highest-confidence moves and
+recorded them. Full detail, including the exact verification steps,
+rollback command, and outdated-reference check, is recorded in
+Workspace OS's own `docs/HANDOFF.md` ("10 November 2026 — First
+controlled Desktop/Downloads housekeeping pass"); this is the WRS-side
+pointer.
+
+**What changed, read-only-verified:** `~/Downloads/WRS_MASTER_STATE_DRAFT_2026-10-26.md`
+and `~/Desktop/WARRIGAL_SYSTEM_AUDIT_2026-09-20.md` now live at
+`docs/reports/` inside this repo (untracked, no commit made, no
+content altered, both byte-size- and mtime-unchanged). Rollback
+command is recorded in the HANDOFF.md entry above.
+
+**Two stale references found in this repo, reported only, not
+edited, per explicit instruction:** this file's own §2, line 59 ("a
+broader Desktop-only `WARRIGAL_SYSTEM_AUDIT_2026-09-20.md`... not
+directly accessible") and `Cases/wrs-collector-repair-youtube-post-comments.md`
+line 25 ("FOUND on the Desktop (not tracked in this repo...)") both
+now describe the audit file's superseded, pre-move location. Neither
+was corrected this pass — left for the owner to decide, exactly as
+instructed. (The identical sentence also appears, unchanged and
+correctly left alone, inside the moved draft file's own preserved
+historical text — that is the draft's own content, not a live claim
+needing correction.)
+
+**Not done by this entry:** no additional file was moved; the
+Desktop/Downloads inventory and three-agent reconciliation were not
+repeated; no file content was modified, including the two stale
+references identified above; no Git commit or push was made; no
+duplicate Case/Bead or tracking record was created.
